@@ -1,0 +1,19 @@
+
+{
+    "name": "TPUart",
+    "version": "1.0.4",
+    "description": "Datalink layer for TP-UART communication in KNX systems",
+    "homepage": "https://openknx.de",
+    "authors": [
+        {
+            "name": "Marco Scholl",
+            "email": "openknx@marco-scholl.de",
+            "maintainer": true
+        },
+        {
+            "name": "OpenKNX",
+            "email": "info@openknx.de",
+            "url": "https://openknx.de"
+        }
+    ]
+}

@@ -1,0 +1,20 @@
+# Logs and AI Agent data
+costs.json
+history.json
+last_execution.log
+*.log
+
+# Sensitive keys
+.deploy_key*
+.env
+
+# PlatformIO
+.pio/
+tul-knx-gateway/.pio/
+*.hex
+
+# OS generated files
+.DS_Store
+Thumbs.db
+FACTS.md
+MEMORY.md
