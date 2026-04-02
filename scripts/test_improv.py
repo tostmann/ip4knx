@@ -117,8 +117,8 @@ while time.time() < scan_timeout:
 p = read_packet(5)
 
 # Send credentials
-ssid = b"4G-Gateway-4545"
-password = b"NFRMA3961E2"
+ssid = args.ssid.encode()
+password = args.password.encode()
 print(f"\n--- Sending Credentials (SSID: {ssid.decode()}) ---")
 payload = bytes([len(ssid)]) + ssid + bytes([len(password)]) + password
 send_command(0x01, payload)
