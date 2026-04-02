@@ -1,12 +1,19 @@
 import serial
 import time
+import argparse
+import sys
 
-port = '/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_10:00:3B:D0:18:2C-if00'
+parser = argparse.ArgumentParser(description='Improv WiFi Provisioning Test')
+parser.add_argument('--port', default='/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_10:00:3B:D0:18:2C-if00', help='Serial port')
+parser.add_argument('--ssid', required=True, help='WiFi SSID')
+parser.add_argument('--password', required=True, help='WiFi Password')
+args = parser.parse_args()
+
 try:
-    ser = serial.Serial(port, 115200, timeout=0.1)
+    ser = serial.Serial(args.port, 115200, timeout=0.1)
     ser.setDTR(False); ser.setRTS(True); time.sleep(0.1); ser.setDTR(False); ser.setRTS(False)
 except Exception as e:
-    print(f"Failed to open {port}: {e}"); exit(1)
+    print(f"Failed to open {args.port}: {e}"); exit(1)
 
 print("Waiting for boot...")
 start = time.time()
