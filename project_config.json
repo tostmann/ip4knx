@@ -1,0 +1,12 @@
+{
+  "model": "gemini-pro-latest",
+  "fast_model": "gemini-flash-latest",
+  "pro_model": "gemini-pro-latest",
+  "summary_model": "gemini-2.5-pro",
+  "force_model": "",
+  "max_turns": 50,
+  "token_explosion_threshold": 150000,
+  "shell_timeout": 300,
+  "enable_caching": false,
+  "cache_ttl_minutes": 60
+}
