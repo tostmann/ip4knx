@@ -3,6 +3,13 @@ costs.json
 history.json
 last_execution.log
 *.log
+comp.txt
+build.log
+
+# Temporary and Analysis Clones
+knx_repo/
+openknx_repo/
+openknx_tpuart/
 
 # Sensitive keys
 .deploy_key*
@@ -16,5 +23,8 @@ tul-knx-gateway/.pio/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Project config
 FACTS.md
 MEMORY.md
+project_config.json
