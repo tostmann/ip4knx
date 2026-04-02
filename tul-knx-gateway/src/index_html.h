@@ -191,6 +191,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                         document.getElementById('rx_frames').innerText = data.rx_frames;
                         document.getElementById('tx_frames').innerText = data.tx_frames;
                         document.getElementById('rx_bytes').innerText = data.rx_bytes;
+                        document.getElementById('tx_bytes').innerText = data.tx_bytes;
                         document.getElementById('bus_load').innerText = data.bus_load;
                     }
                     
