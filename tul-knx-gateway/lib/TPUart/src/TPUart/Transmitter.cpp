@@ -81,6 +81,7 @@ namespace TPUart
         _frame = _queue.front();
         _queue.pop();
         _dll._statistics.incrementTxFrames();
+        _dll._statistics.incrementTxFrameBytes(_frame->size());
 
         // Fallback if the frame is too big - Filtered on DLL, too
         if (_dll._bcuType == BCU_TPUART2 && _frame->size() > 64)

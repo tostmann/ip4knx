@@ -160,11 +160,13 @@ void setup() {
         if (tpLayer) {
             auto& stats = tpLayer->getTPUart().getStatistics();
             json += "\"rx_bytes\":" + String(stats.getRxReceivedBytes()) + ",";
+            json += "\"tx_bytes\":" + String(stats.getTxFrameBytes()) + ",";
             json += "\"rx_frames\":" + String(stats.getRxFrames()) + ",";
             json += "\"tx_frames\":" + String(stats.getTxFrames()) + ",";
             json += "\"bus_load\":" + String(stats.getBusLoad());
         } else {
             json += "\"rx_bytes\":0,";
+            json += "\"tx_bytes\":0,";
             json += "\"rx_frames\":0,";
             json += "\"tx_frames\":0,";
             json += "\"bus_load\":0";

@@ -23,6 +23,7 @@ namespace TPUart
         _rxSearchBufferOverflow = 0;
         _rxUartOverflow = 0;
         _txFrames = 0;
+        _txFrameBytes = 0;
         _txOverflowFrameBuffer = 0;
         _rxControlBytes = 0;
         _rxRepetitions = 0;
@@ -186,6 +187,17 @@ namespace TPUart
         _rxLastBusBytes = currentBytes;
 
         return load;
+    }
+
+
+    void Statistics::incrementTxFrameBytes(int increment /* = 1 */)
+    {
+        _txFrameBytes += increment;
+    }
+
+    unsigned int Statistics::getTxFrameBytes()
+    {
+        return _txFrameBytes;
     }
 
 } // namespace TPUart

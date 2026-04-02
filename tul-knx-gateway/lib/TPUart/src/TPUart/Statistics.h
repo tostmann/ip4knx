@@ -21,6 +21,7 @@ namespace TPUart
         volatile unsigned int _rxSearchBufferOverflow;
         volatile unsigned int _rxUartOverflow;
         volatile unsigned int _txFrames;
+        volatile unsigned int _txFrameBytes;
         volatile unsigned int _txOverflowFrameBuffer;
         volatile unsigned int _rxRepetitions;
 
@@ -43,10 +44,12 @@ namespace TPUart
         void incrementRxUartOverflow(int increment = 1);
         void incrementTxOverflowFrameBuffer(int increment = 1);
         void incrementTxFrames(int increment = 1);
+        void incrementTxFrameBytes(int increment = 1);
 
         unsigned int getRxRepetitions();
         unsigned int getRxFrameBytes();
         unsigned int getTxFrames();
+        unsigned int getTxFrameBytes();
         unsigned int getRxFrames();
         unsigned int getRxBusBytes();
         // unsigned int getRxControlBytes();
