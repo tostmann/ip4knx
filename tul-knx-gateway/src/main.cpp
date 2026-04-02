@@ -159,7 +159,7 @@ void setup() {
         auto tpLayer = ((Bau091A&)knx.bau()).getSecondaryDataLinkLayer();
         if (tpLayer) {
             auto& stats = tpLayer->getTPUart().getStatistics();
-            json += "\"rx_bytes\":" + String(stats.getRxReceivedBytes()) + ",";
+            json += "\"rx_bytes\":" + String(stats.getRxBusBytes()) + ",";
             json += "\"tx_bytes\":" + String(stats.getTxFrameBytes()) + ",";
             json += "\"rx_frames\":" + String(stats.getRxFrames()) + ",";
             json += "\"tx_frames\":" + String(stats.getTxFrames()) + ",";
