@@ -5,7 +5,7 @@ import threading
 
 PORT = '/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_10:00:3B:D0:18:2C-if00'
 HASS_URL = "http://localhost:8123/api/services/knx/send"
-HASS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI0MzgzOTcxYzYyZDQ0NTM3OWNlNmQ3ZjBkYzUwNzk3NiIsImlhdCI6MTc3NDI2NTU4OCwiZXhwIjoyMDg5NjI1NTg4fQ.srn3sfwQlhOoMZy_peEVvQdHsVBfP6oJTnjvhmxU1R0"
+HASS_TOKEN = "YOUR_LONG_LIVED_ACCESS_TOKEN_HERE"
 
 def monitor_serial():
     try:

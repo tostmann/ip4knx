@@ -5,7 +5,7 @@ import time
 import threading
 
 HASS_URL = "http://localhost:8123/api/services/knx/send"
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI0MzgzOTcxYzYyZDQ0NTM3OWNlNmQ3ZjBkYzUwNzk3NiIsImlhdCI6MTc3NDI2NTU4OCwiZXhwIjoyMDg5NjI1NTg4fQ.srn3sfwQlhOoMZy_peEVvQdHsVBfP6oJTnjvhmxU1R0"
+TOKEN = "YOUR_LONG_LIVED_ACCESS_TOKEN_HERE"
 HEADERS = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json"
