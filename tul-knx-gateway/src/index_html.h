@@ -158,6 +158,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <div class="info-row"><span>Empfangene Telegramme (RX):</span> <span id="rx_frames">-</span></div>
                     <div class="info-row"><span>Gesendete Telegramme (TX):</span> <span id="tx_frames">-</span></div>
                     <div class="info-row"><span>Empfangene Bytes (RX):</span> <span id="rx_bytes">-</span></div>
+                    <div class="info-row"><span>Gesendete Bytes (TX):</span> <span id="tx_bytes">-</span></div>
                 </div>
             </section>
 
