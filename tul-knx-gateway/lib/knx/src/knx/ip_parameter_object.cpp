@@ -128,6 +128,10 @@ IpParameterObject::IpParameterObject(DeviceObject& deviceObject, Platform& platf
         new DataProperty(PID_FRIENDLY_NAME, true, PDT_UNSIGNED_CHAR, 30, ReadLv3 | WriteLv3)
     };
     initializeProperties(sizeof(properties), properties);
+
+    uint8_t defaultFriendlyName[30] = {0};
+    strcpy((char*)defaultFriendlyName, "busware.de TUL");
+    property(PID_FRIENDLY_NAME)->write(1, 30, defaultFriendlyName);
 }
 
 #endif
