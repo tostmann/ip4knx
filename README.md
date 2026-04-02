@@ -52,9 +52,14 @@ This project uses PlatformIO. The required `knx` and `tpuart` libraries are vend
 
 ## ⚙️ Initial Setup
 1. Plug the TUL stick into a USB port.
-2. The initial firmware has no Wi-Fi credentials. Open a Web-Serial terminal (like [ESP Web Tools](https://espweb.tools/)) and connect to the device.
-3. Follow the "Improv-WiFi" prompts to pass your SSID and Password.
-4. Open `http://tul.local` in your browser.
+2. The initial firmware has no Wi-Fi credentials (flashing the factory binary to `0x0000` erases the NVS partition). 
+3. **Provisioning via Web-Serial:** Open a Web-Serial terminal (like [ESP Web Tools](https://espweb.tools/)) and connect to the device. Follow the "Improv-WiFi" prompts to pass your SSID and Password.
+4. **Provisioning via Python Script (CLI):** Alternatively, you can provision the Wi-Fi credentials via command line using the included test script. This is highly useful for automated setups or debugging:
+   ```bash
+   pip install pyserial
+   python3 scripts/test_improv.py --port /dev/ttyUSB0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
+   ```
+5. Once connected, open `http://tul.local` in your browser.
 
 ## 🤝 Credits
 This project heavily relies on the [OpenKNX](https://github.com/OpenKNX) library stack, which provides the robust KNX TP1 and IP protocol implementation.
