@@ -53,7 +53,7 @@ This project uses PlatformIO. The required `knx` and `tpuart` libraries are vend
 ## ⚙️ Initial Setup
 1. Plug the TUL stick into a USB port.
 2. The initial firmware has no Wi-Fi credentials (flashing the factory binary to `0x0000` erases the NVS partition). 
-3. **Provisioning via Web-Serial:** Open a Web-Serial terminal (like [ESP Web Tools](https://espweb.tools/)) and connect to the device. Follow the "Improv-WiFi" prompts to pass your SSID and Password.
+3. **Provisioning via Web-Serial:** Open the official Webinstaller at [install.busware.de/TUL/](https://install.busware.de/TUL/) and connect to the device. Follow the "Improv-WiFi" prompts to pass your SSID and Password.
 4. **Provisioning via Python Script (CLI):** Alternatively, you can provision the Wi-Fi credentials via command line using the included test script. This is highly useful for automated setups or debugging:
    ```bash
    pip install pyserial
