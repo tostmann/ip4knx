@@ -443,7 +443,11 @@ void ImprovWiFi::setState(ImprovTypes::State state)
     checksum += d;
   data[10] = checksum;
 
+  // Send \n before packet so ESP Web Tools parser resets its buffer.
+  // The browser parser discards non-IMPROV bytes but uses \n as sync point.
+  serial->write('\n');
   serial->write(data.data(), data.size());
+  serial->write('\n');
 }
 
 void ImprovWiFi::setError(ImprovTypes::Error error)
@@ -460,7 +464,9 @@ void ImprovWiFi::setError(ImprovTypes::Error error)
     checksum += d;
   data[10] = checksum;
 
+  serial->write('\n');
   serial->write(data.data(), data.size());
+  serial->write('\n');
 }
 
 void ImprovWiFi::sendResponse(std::vector<uint8_t> &response)
@@ -477,7 +483,9 @@ void ImprovWiFi::sendResponse(std::vector<uint8_t> &response)
     checksum += d;
   data.push_back(checksum);
 
+  serial->write('\n');
   serial->write(data.data(), data.size());
+  serial->write('\n');
 }
 
 std::vector<uint8_t> ImprovWiFi::build_rpc_response(ImprovTypes::Command command, const std::vector<std::string> &datum, bool add_checksum)
