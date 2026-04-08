@@ -91,10 +91,10 @@ def parse_improv_response(data: bytes) -> Tuple[int, bytes]:
 class ImprovClient:
     """Improv Serial Protocol Client."""
 
-    # Command IDs
-    CMD_GET_CURRENT_STATE = 0x03
-    CMD_GET_DEVICE_INFO = 0x04
-    CMD_GET_WIFI_NETWORKS = 0x05
+    # Command IDs (matching official Improv spec)
+    CMD_GET_CURRENT_STATE = 0x02
+    CMD_GET_DEVICE_INFO = 0x03
+    CMD_GET_WIFI_NETWORKS = 0x04
     CMD_WIFI_SETTINGS = 0x01
 
     # Packet types

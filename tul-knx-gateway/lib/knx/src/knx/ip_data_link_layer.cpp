@@ -290,7 +290,6 @@ void IpDataLinkLayer::loop()
                 _platform.sendBytesUniCast(tunnels[i].IpAddress, tunnels[i].PortCtrl, discReq.data(), discReq.totalLength());
                 tunnels[i].Reset();
             }
-            break;
         }
     }
 #endif
@@ -708,7 +707,7 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
     
     
     uint8_t tunIdx = 0xff;
-    if(resTunActive & (firstResAndFreeTunnel >= 0 || firstResAndOccTunnel >= 0))   // tunnel reserve feature active (for this src)
+    if(resTunActive && (firstResAndFreeTunnel >= 0 || firstResAndOccTunnel >= 0))   // tunnel reserve feature active (for this src)
     {
         if(firstResAndFreeTunnel >= 0)
         {
@@ -876,8 +875,16 @@ void IpDataLinkLayer::loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t
         return;
     }
 
-    //TODO check knx connection!
-    //if no connection return E_KNX_CONNECTION
+    if (!_knxBusConnected)
+    {
+#ifdef KNX_LOG_TUNNELING
+        print("KNX Bus connection lost for channel: ");
+        println(tun->ChannelId);
+#endif
+        KnxIpStateResponse stateRes(tun->ChannelId, E_KNX_CONNECTION);
+        _platform.sendBytesUniCast(stateRequest.hpaiCtrl().ipAddress(), stateRequest.hpaiCtrl().ipPortNumber(), stateRes.data(), stateRes.totalLength());
+        return;
+    }
 
     //TODO check when to send E_DATA_CONNECTION
 
@@ -1054,6 +1061,11 @@ void IpDataLinkLayer::enabled(bool value)
 bool IpDataLinkLayer::enabled() const
 {
     return _enabled;
+}
+
+void IpDataLinkLayer::knxBusConnected(bool connected)
+{
+    _knxBusConnected = connected;
 }
 
 DptMedium IpDataLinkLayer::mediumType() const

@@ -20,6 +20,7 @@ class IpDataLinkLayer : public DataLinkLayer
     void loop();
     void enabled(bool value);
     bool enabled() const;
+    void knxBusConnected(bool connected);  // Set KNX bus connection status
     DptMedium mediumType() const override;
 #ifdef KNX_TUNNELING
     void dataRequestToTunnel(CemiFrame& frame) override;
@@ -32,6 +33,7 @@ class IpDataLinkLayer : public DataLinkLayer
 
   private:
     bool _enabled = false;
+    bool _knxBusConnected = false;  // Track KNX bus connection status
     uint8_t _frameCount[10] = {0,0,0,0,0,0,0,0,0,0};
     uint8_t _frameCountBase = 0;
     uint32_t _frameCountTimeBase = 0;

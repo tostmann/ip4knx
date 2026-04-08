@@ -33,20 +33,22 @@ enum Error : uint8_t {
 };
 
 enum State : uint8_t {
-  STATE_STOPPED = 0x00,
   STATE_AWAITING_AUTHORIZATION = 0x01,
   STATE_AUTHORIZED = 0x02,
   STATE_PROVISIONING = 0x03,
   STATE_PROVISIONED = 0x04,
+  STATE_STOPPED = 0x00,  // Internal use only
 };
 
 enum Command : uint8_t {
   UNKNOWN = 0x00,
   WIFI_SETTINGS = 0x01,
-  IDENTIFY = 0x02,
-  GET_CURRENT_STATE = 0x02,
+  GET_CURRENT_STATE = 0x02,      // ESP WebFlasher sends this first
   GET_DEVICE_INFO = 0x03,
   GET_WIFI_NETWORKS = 0x04,
+  SET_HOSTNAME = 0x05,
+  SET_DEVICE_NAME = 0x06,
+  IDENTIFY = 0x07,
   BAD_CHECKSUM = 0xFF,
 };
 
@@ -71,6 +73,7 @@ enum ChipFamily : uint8_t {
   CF_ESP32_C3,
   CF_ESP32_S2,
   CF_ESP32_S3,
+  CF_ESP32_C6,
   CF_ESP8266
 };
 

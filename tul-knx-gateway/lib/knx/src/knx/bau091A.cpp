@@ -159,6 +159,10 @@ void Bau091A::loop()
     _dlLayerPrimary.loop();
     _dlLayerSecondary.loop();
     BauSystemBCoupler::loop();
+
+    // Update KNX bus connection status for IpDataLinkLayer
+    // This enables E_KNX_CONNECTION response when TP-UART is disconnected
+    _dlLayerPrimary.knxBusConnected(_dlLayerSecondary.isConnected());
 }
 
 TPAckType Bau091A::isAckRequired(uint16_t address, bool isGrpAddr)
@@ -168,7 +172,7 @@ TPAckType Bau091A::isAckRequired(uint16_t address, bool isGrpAddr)
 
     uint8_t lcconfig = LCCONFIG::PHYS_FRAME_ROUT | LCCONFIG::PHYS_REPEAT | LCCONFIG::BROADCAST_REPEAT | LCCONFIG::GROUP_IACK_ROUT | LCCONFIG::PHYS_IACK_NORMAL; // default value from spec. in case prop is not availible.
     Property* prop_lcconfig = _routerObj.property(PID_SUB_LCCONFIG);
-    if(lcconfig)
+    if(prop_lcconfig)
         prop_lcconfig->read(lcconfig);
 
     if (isGrpAddr)

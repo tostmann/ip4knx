@@ -52,23 +52,34 @@ bool ImprovWiFi::onCommandCallback(ImprovTypes::ImprovCommand cmd)
   {
   case ImprovTypes::Command::GET_CURRENT_STATE:
   {
+    // ESP WebFlasher expects this response first during initialization
     if (isConnected())
     {
       setState(ImprovTypes::State::STATE_PROVISIONED);
-      sendDeviceUrl(cmd.command);
     }
     else
     {
       setState(ImprovTypes::State::STATE_AUTHORIZED);
     }
-
     break;
   }
 
   case ImprovTypes::Command::WIFI_SETTINGS:
   {
 
-    if (cmd.ssid.empty())
+    if (cmd.ssid.empty() || cmd.ssid.length() > 32)
+    {
+      setError(ImprovTypes::Error::ERROR_INVALID_RPC);
+      break;
+    }
+
+    // Password validation: empty for open networks, 8-63 chars for WPA/WPA2
+    if (cmd.password.length() > 0 && cmd.password.length() < 8)
+    {
+      setError(ImprovTypes::Error::ERROR_INVALID_RPC);
+      break;
+    }
+    if (cmd.password.length() > 63)
     {
       setError(ImprovTypes::Error::ERROR_INVALID_RPC);
       break;
@@ -126,6 +137,14 @@ bool ImprovWiFi::onCommandCallback(ImprovTypes::ImprovCommand cmd)
   case ImprovTypes::Command::GET_WIFI_NETWORKS:
   {
     getAvailableWifiNetworks();
+    break;
+  }
+
+  case ImprovTypes::Command::IDENTIFY:
+  {
+    // Identify command - optional, just acknowledge
+    // ESP WebFlasher may send this during initialization
+    setError(ImprovTypes::Error::ERROR_NONE);
     break;
   }
 
@@ -252,22 +271,40 @@ void ImprovWiFi::getAvailableWifiNetworks()
       }
       
   
-      // Send networks
+      // Collect all networks into single response
+      std::vector<std::string> allNetworks;
       for (uint32_t i = 0; i < networkNum; i++) {
           if (-1 == indices[i]) { continue; }                  // Skip dups
           String ssid_copy = WiFi.SSID(indices[i]);
           if (!ssid_copy.length()) { ssid_copy = F("no_name"); }
 
-	  std::vector<std::string> wifinetworks = { ssid_copy.c_str(), std::to_string(WiFi.RSSI(indices[i])), ( WiFi.encryptionType(indices[i]) == WIFI_OPEN ? "NO" : "YES") };
-	  std::vector<uint8_t> data = build_rpc_response( ImprovTypes::GET_WIFI_NETWORKS, wifinetworks, false);
-	  sendResponse(data);
-	  delay(1);
+          allNetworks.push_back(ssid_copy.c_str());
+          allNetworks.push_back(std::to_string(WiFi.RSSI(indices[i])));
+          allNetworks.push_back(getSecurityTypeString(WiFi.encryptionType(indices[i])));
       }
+
+      // Send consolidated response
+      std::vector<uint8_t> data = build_rpc_response(ImprovTypes::GET_WIFI_NETWORKS, allNetworks, false);
+      sendResponse(data);
   }
 
   // final response
-  std::vector<uint8_t> data =  build_rpc_response(ImprovTypes::GET_WIFI_NETWORKS, std::vector<std::string>{}, false);
-  sendResponse(data);
+  std::vector<uint8_t> endData = build_rpc_response(ImprovTypes::GET_WIFI_NETWORKS, std::vector<std::string>{}, false);
+  sendResponse(endData);
+}
+
+std::string ImprovWiFi::getSecurityTypeString(uint8_t encryptionType)
+{
+  switch (encryptionType) {
+      case WIFI_AUTH_OPEN: return "OPEN";
+      case WIFI_AUTH_WEP: return "WEP";
+      case WIFI_AUTH_WPA_PSK: return "WPA";
+      case WIFI_AUTH_WPA2_PSK: return "WPA2";
+      case WIFI_AUTH_WPA_WPA2_PSK: return "WPA_WPA2";
+      case WIFI_AUTH_WPA3_PSK: return "WPA3";
+      case WIFI_AUTH_WPA2_WPA3_PSK: return "WPA2_WPA3";
+      default: return "UNKNOWN";
+  }
 }
 
 inline void ImprovWiFi::replaceAll(std::string &str, const std::string &from, const std::string &to)
@@ -344,7 +381,7 @@ ImprovTypes::ImprovCommand ImprovWiFi::parseImprovData(const uint8_t *data, size
   ImprovTypes::Command command = (ImprovTypes::Command)data[0];
   uint8_t data_length = data[1];
 
-  if (data_length != length - 2 - check_checksum)
+  if (data_length != length - 2 - (check_checksum ? 1 : 0))
   {
     improv_command.command = ImprovTypes::Command::UNKNOWN;
     return improv_command;
