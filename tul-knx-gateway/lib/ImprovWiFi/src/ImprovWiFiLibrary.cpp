@@ -6,7 +6,7 @@ void ImprovWiFi::handleSerial()
   {
     uint8_t b = serial->read();
 
-    if (parseImprovSerial(_position, b, _buffer))
+    if (_position < sizeof(_buffer) && parseImprovSerial(_position, b, _buffer))
     {
       _buffer[_position++] = b;
     }
@@ -24,7 +24,7 @@ bool ImprovWiFi::handleBuffer(uint8_t *buffer, uint16_t bytes) {
 	for (uint16_t i = 0; i < bytes; i++) {
 	    uint8_t b = buffer[i];
 	    
-	    if (parseImprovSerial(_position, b, _buffer)) {
+	    if (_position < sizeof(_buffer) && parseImprovSerial(_position, b, _buffer)) {
 		_buffer[_position++] = b;
 		res = true;
 	    } else {
@@ -184,16 +184,18 @@ void ImprovWiFi::sendDeviceUrl(ImprovTypes::Command cmd)
   sprintf(buffer, "%d.%d.%d.%d", address[0], address[1], address[2], address[3]);
   std::string ipStr = std::string{buffer};
 
-  if (improvWiFiParams.deviceUrl.empty())
+  std::string urlToSend = improvWiFiParams.deviceUrl;
+
+  if (urlToSend.empty())
   {
-    improvWiFiParams.deviceUrl = "http://" + ipStr;
+    urlToSend = "http://" + ipStr;
   }
   else
   {
-    replaceAll(improvWiFiParams.deviceUrl, "{LOCAL_IPV4}", ipStr);
+    replaceAll(urlToSend, "{LOCAL_IPV4}", ipStr);
   }
 
-  std::vector<uint8_t> data = build_rpc_response(cmd, {improvWiFiParams.deviceUrl}, false);
+  std::vector<uint8_t> data = build_rpc_response(cmd, {urlToSend}, false);
   sendResponse(data);
 }
 
@@ -245,7 +247,7 @@ void ImprovWiFi::getAvailableWifiNetworks()
   if (networkNum==0)
       networkNum = WiFi.scanNetworks(false, false); 
 
-  if (networkNum) {
+  if (networkNum > 0) {
       int indices[networkNum];
       
       // Sort RSSI - strongest first
@@ -263,7 +265,7 @@ void ImprovWiFi::getAvailableWifiNetworks()
           if (-1 == indices[i]) { continue; }
           String cssid = WiFi.SSID(indices[i]);
           for (uint32_t j = i + 1; j < networkNum; j++) {
-	      if (cssid == WiFi.SSID(indices[j])) {
+	      if (indices[j] != -1 && cssid == WiFi.SSID(indices[j])) {
 		  indices[j] = -1; // Set dup aps to index -1
 	      }
           }

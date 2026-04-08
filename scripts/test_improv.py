@@ -407,29 +407,36 @@ class ImprovClient:
         print("[Client] Requesting device state for IP...")
         self.send_command(self.CMD_GET_CURRENT_STATE)
 
-        result = self.read_packet(timeout=5.0)
-        if not result:
-            return "Unknown"
+        start_time = time.time()
+        while time.time() - start_time < 5.0:
+            result = self.read_packet(timeout=1.0)
+            if not result:
+                continue
 
-        pkt_type, data = result
+            pkt_type, data = result
 
-        # STATE_PROVISIONED packet may contain URL with IP
-        if pkt_type == self.TYPE_CURRENT_STATE and len(data) >= 1:
-            state = data[0]
-            if state == self.STATE_PROVISIONED and len(data) > 2:
-                url_len = data[1] if data[1] > 0 else 0
-                if url_len > 0 and len(data) >= 2 + url_len:
-                    url = data[2:2+url_len].decode('utf-8', errors='ignore')
+            # STATE_PROVISIONED packet may contain URL with IP
+            if pkt_type == self.TYPE_CURRENT_STATE and len(data) >= 1:
+                state = data[0]
+                if state == self.STATE_PROVISIONED and len(data) > 2:
+                    url_len = data[1] if data[1] > 0 else 0
+                    if url_len > 0 and len(data) >= 2 + url_len:
+                        url = data[2:2+url_len].decode('utf-8', errors='ignore')
+                        if "://" in url:
+                            ip = url.split("://")[1].split("/")[0]
+                            return ip
+
+            # Also check RPC_RESPONSE (some implementations return URL this way)
+            if pkt_type == self.TYPE_RPC_RESPONSE and len(data) > 2:
+                # First byte is usually the command ID, next is length, then URL
+                # but we can just search for http:// or https://
+                try:
+                    url = data.decode('utf-8', errors='ignore')
                     if "://" in url:
                         ip = url.split("://")[1].split("/")[0]
                         return ip
-
-        # Also check RPC_RESPONSE (some implementations return URL this way)
-        if pkt_type == self.TYPE_RPC_RESPONSE and len(data) > 2:
-            url = data[1:].decode('utf-8', errors='ignore')
-            if "://" in url:
-                ip = url.split("://")[1].split("/")[0]
-                return ip
+                except:
+                    pass
 
         return "Unknown"
 
