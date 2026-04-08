@@ -61,7 +61,7 @@ void setup() {
 #if defined(CONFIG_IDF_TARGET_ESP32C3)
     improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C3, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
-    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL32 KNX/IP Gateway", "1.0.0", "TUL32 Gateway");
+    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C6, "TUL32 KNX/IP Gateway", "1.0.0", "TUL32 Gateway");
 #else
     improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
 #endif
