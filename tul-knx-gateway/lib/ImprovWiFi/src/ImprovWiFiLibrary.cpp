@@ -2,8 +2,8 @@
 
 void ImprovWiFi::handleSerial()
 {
-
-  if (serial->available() > 0)
+  // Read ALL available bytes, not just one
+  while (serial->available() > 0)
   {
     uint8_t b = serial->read();
 

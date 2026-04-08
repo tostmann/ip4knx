@@ -55,9 +55,9 @@ void setup() {
     Serial.begin(115200);
     delay(2000);
     Serial.println("Starting TUL KNX/IP Gateway");
-    
+
     ArduinoPlatform::SerialDebug = &Serial;
-    
+
     pinMode(KNX_LED, OUTPUT);
     digitalWrite(KNX_LED, HIGH); // Active low
 
@@ -74,6 +74,10 @@ void setup() {
     // Setup Improv callbacks
     improvSerial.onImprovConnected(onImprovWiFiConnectedCb);
     improvSerial.onImprovError(onImprovWiFiErrorCb);
+
+    // Start 120s Improv window immediately at boot
+    bootTime = millis();
+    Serial.println("[Info] Improv WiFi provisioning active for 120 seconds...");
 #if defined(CONFIG_IDF_TARGET_ESP32C3)
     improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C3, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
@@ -87,56 +91,54 @@ void setup() {
     WiFi.mode(WIFI_STA);
     WiFi.disconnect(); // Clear any stale connection state
 
-    // First, try standard WiFi begin (if already configured)
-    // ESP32-C6 crashes with WiFi.begin() when no credentials stored, so check first
+    // Check for stored credentials
     bool hasCredentials = WiFi.psk().length() > 0 || WiFi.SSID().length() > 0;
     Serial.print("WiFi SSID length: ");
     Serial.println(WiFi.SSID().length());
     Serial.print("WiFi PSK length: ");
     Serial.println(WiFi.psk().length());
 
+    // Wait for WiFi connection ONLY within the 120s Improv window
+    // This allows re-configuration even if credentials are stored
+    const uint32_t improvWindowMs = 120000;  // 120 seconds
+
     if (hasCredentials) {
         Serial.println("WiFi credentials found, attempting auto-reconnect...");
         WiFi.begin();
-        int wifiWait = 0;
-        while (WiFi.status() != WL_CONNECTED && wifiWait < 10) {
-            delay(500);
+
+        // Wait for connection, but keep Improv active and respect 120s window
+        while (WiFi.status() != WL_CONNECTED && (millis() - bootTime < improvWindowMs)) {
             improvSerial.handleSerial();
-            wifiWait++;
+            delay(10);
         }
     } else {
         Serial.println("No WiFi credentials stored.");
     }
 
+    // If not connected after initial attempt, wait for Improv provisioning
+    // for the remainder of the 120s window
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Waiting for Improv WiFi provisioning via Serial...");
+        Serial.println("Waiting for Improv WiFi provisioning...");
 
-        uint32_t provStart = millis();
-        const uint32_t provTimeout = 300000;  // 5 minutes timeout
-
-        while (WiFi.status() != WL_CONNECTED) {
+        while (WiFi.status() != WL_CONNECTED && (millis() - bootTime < improvWindowMs)) {
             improvSerial.handleSerial();
-
-            // Timeout protection - prevent infinite blocking
-            if (millis() - provStart > provTimeout) {
-                Serial.println("[Warning] Provisioning timeout reached");
-                Serial.println("[Info] System will continue - reflash or re-provision if needed");
-                break;
-            }
             delay(10);
         }
 
         if (improvConnected) {
             Serial.println("[Info] WiFi configured via Improv");
         }
-    } else {
-        Serial.println("WiFi auto-reconnected.");
-        Serial.print("IP Address: ");
-        Serial.println(WiFi.localIP());
     }
 
-    digitalWrite(KNX_LED, LOW); // Connected
-    bootTime = millis();
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("WiFi connected!");
+        Serial.print("IP Address: ");
+        Serial.println(WiFi.localIP());
+        digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
+    } else {
+        Serial.println("[Warning] WiFi not connected - system will continue");
+        digitalWrite(KNX_LED, LOW); // LED ON anyway
+    }
 
     // === KNX Setup ===
     
