@@ -12,18 +12,24 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
 *   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`.
 *   **Hardware Watchdog:** Active Task Watchdog Timer (TWDT) and Wi-Fi connection monitoring for ultimate stability.
+*   **Build Versioning:** Git hash and build number displayed in serial output and `/api/status` JSON.
 
 ## 🎛 Supported Hardware
 
 ### Busware TUL (ESP32-C3)
 *   **MCU:** ESP32-C3
 *   **Transceiver:** NCN5130 (Galvanically isolated via ISO7221)
+*   **Flash:** 4MB
 *   **Target Env:** `tul_esp32c3`
+*   **Pins:** LED=4, Button=9, RX=20, TX=21 (UART_NUM_1)
 
 ### Busware TUL32 (ESP32-C6)
-*   **MCU:** ESP32-C6-MINI
+*   **MCU:** ESP32-C6-MINI-1-N4
 *   **Transceiver:** NCN5130 (Galvanically isolated via ISO7221)
+*   **Flash:** 4MB
 *   **Target Env:** `tul32_esp32c6`
+*   **Pins:** LED=8, Button=9, RX=5, TX=4 (UART_NUM_1)
+*   **Note:** Requires custom 4MB partition table and NVS initialization (see CLAUDE.md)
 
 ## 🚀 Installation
 
@@ -60,6 +66,47 @@ This project uses PlatformIO. The required `knx` and `tpuart` libraries are vend
    python3 scripts/test_improv.py --port /dev/ttyUSB0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
    ```
 5. Once connected, open `http://tul.local` in your browser.
+
+## 🔧 Utilities
+
+### Build Factory Binary
+Create combined factory images for ESP WebFlashTools:
+```bash
+./scripts/build_factory.sh tul_esp32c3   # For TUL (ESP32-C3)
+./scripts/build_factory.sh tul32_esp32c6 # For TUL32 (ESP32-C6)
+```
+Output: `binaries/factory_*.bin` (ready for flashing at 0x0000)
+
+### Verify Factory Image
+Automated verification script that tests the complete deployment workflow:
+```bash
+./scripts/verify_factory_image.sh \
+    --target tul32_esp32c6 \
+    --ssid 'MyWiFi' \
+    --password 'Secret123' \
+    [--port /dev/ttyUSB0]  # Optional: auto-detected if not specified
+```
+
+The script performs:
+1. **Flashing** - Writes factory binary to device
+2. **WiFi Provisioning** - Sends credentials via ImprovSerial
+3. **Web Dashboard Check** - Verifies HTTP/API endpoints
+4. **KNX Test** - Sends test telegram (requires ETS-programmed device)
+
+### Python Test Scripts
+```bash
+# WiFi provisioning via CLI
+python3 scripts/test_improv.py --ssid 'MyWiFi' --password 'Secret123' --validate
+
+# Scan available networks
+python3 scripts/test_improv.py --scan
+
+# Device info
+python3 scripts/test_improv.py --info
+
+# KNX/IP diagnostic & bidirectional test
+python3 scripts/test_knx_ip_bidirectional.py --diagnose 10.10.11.199
+```
 
 ## 🤝 Credits
 This project heavily relies on the [OpenKNX](https://github.com/OpenKNX) library stack, which provides the robust KNX TP1 and IP protocol implementation.

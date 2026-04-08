@@ -162,11 +162,20 @@ const char index_html[] PROGMEM = R"rawliteral(
                 </div>
             </section>
 
+            <section class="card">
+                <div class="card-header">Firmware Version</div>
+                <div class="card-body">
+                    <div class="info-row"><span>Build Nummer:</span> <span id="build_number">-</span></div>
+                    <div class="info-row"><span>Git Hash:</span> <span id="build_git">-</span></div>
+                </div>
+            </section>
+
         </div>
     </main>
 
     <footer>
-        TUL/TUL32 KNX/IP Gateway Firmware - basierend auf OpenKNX
+        TUL/TUL32 KNX/IP Gateway Firmware - basierend auf OpenKNX |
+        Build: <span id="footer_build">-</span> (<span id="footer_git">-</span>)
     </footer>
 
     <script>
@@ -202,6 +211,14 @@ const char index_html[] PROGMEM = R"rawliteral(
                     } else {
                         badge.innerText = 'WLAN Getrennt';
                         badge.className = 'status-badge status-offline';
+                    }
+
+                    // Build info
+                    if (data.build) {
+                        document.getElementById('build_number').innerText = data.build.number;
+                        document.getElementById('build_git').innerText = data.build.git;
+                        document.getElementById('footer_build').innerText = data.build.number;
+                        document.getElementById('footer_git').innerText = data.build.git;
                     }
                 })
                 .catch(error => console.error('Error fetching status:', error));

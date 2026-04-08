@@ -1,8 +1,10 @@
 #include <Network.h>
 #include <Arduino.h>
 #include <WiFi.h>
+#include "version.h"
 #include <knx.h>
 #include "ImprovWiFiLibrary.h"
+#include "nvs_flash.h"
 
 #include <ESPAsyncWebServer.h>
 #include <ESPmDNS.h>
@@ -59,6 +61,16 @@ void setup() {
     pinMode(KNX_LED, OUTPUT);
     digitalWrite(KNX_LED, HIGH); // Active low
 
+    // Initialize NVS - required for WiFi and Improv
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        Serial.println("NVS: erasing and re-initializing...");
+        nvs_flash_erase();
+        nvs_flash_init();
+    }
+    Serial.print("NVS init: ");
+    Serial.println(err == ESP_OK ? "OK" : "FAILED");
+
     // Setup Improv callbacks
     improvSerial.onImprovConnected(onImprovWiFiConnectedCb);
     improvSerial.onImprovError(onImprovWiFiErrorCb);
@@ -70,21 +82,52 @@ void setup() {
 #else
     improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
 #endif
-    
+
+    // Enable WiFi STA mode to read stored credentials
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(); // Clear any stale connection state
+
     // First, try standard WiFi begin (if already configured)
-    WiFi.begin();
-    int wifiWait = 0;
-    while (WiFi.status() != WL_CONNECTED && wifiWait < 10) {
-        delay(500);
-        improvSerial.handleSerial();
-        wifiWait++;
+    // ESP32-C6 crashes with WiFi.begin() when no credentials stored, so check first
+    bool hasCredentials = WiFi.psk().length() > 0 || WiFi.SSID().length() > 0;
+    Serial.print("WiFi SSID length: ");
+    Serial.println(WiFi.SSID().length());
+    Serial.print("WiFi PSK length: ");
+    Serial.println(WiFi.psk().length());
+
+    if (hasCredentials) {
+        Serial.println("WiFi credentials found, attempting auto-reconnect...");
+        WiFi.begin();
+        int wifiWait = 0;
+        while (WiFi.status() != WL_CONNECTED && wifiWait < 10) {
+            delay(500);
+            improvSerial.handleSerial();
+            wifiWait++;
+        }
+    } else {
+        Serial.println("No WiFi credentials stored.");
     }
 
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("Waiting for Improv WiFi provisioning via Serial...");
+
+        uint32_t provStart = millis();
+        const uint32_t provTimeout = 300000;  // 5 minutes timeout
+
         while (WiFi.status() != WL_CONNECTED) {
             improvSerial.handleSerial();
+
+            // Timeout protection - prevent infinite blocking
+            if (millis() - provStart > provTimeout) {
+                Serial.println("[Warning] Provisioning timeout reached");
+                Serial.println("[Info] System will continue - reflash or re-provision if needed");
+                break;
+            }
             delay(10);
+        }
+
+        if (improvConnected) {
+            Serial.println("[Info] WiFi configured via Improv");
         }
     } else {
         Serial.println("WiFi auto-reconnected.");
@@ -115,7 +158,7 @@ void setup() {
     }
 
     knx.start();
-    Serial.println("KNX Gateway running!");
+    Serial.printf("KNX Gateway running! (Build %lu, Git %s)\n", (unsigned long)BUILD_NUMBER, BUILD_GIT);
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
         request->send_P(200, "text/html", index_html);
@@ -171,7 +214,13 @@ void setup() {
             json += "\"tx_frames\":0,";
             json += "\"bus_load\":0";
         }
-        
+
+        // Build info
+        json += ",\"build\":{";
+        json += "\"number\":" + String(BUILD_NUMBER) + ",";
+        json += "\"git\":\"" + String(BUILD_GIT) + "\"";
+        json += "}";
+
         json += "}";
         request->send(200, "application/json", json);
     });
