@@ -270,40 +270,33 @@ class ImprovClient:
 
                 if state == self.STATE_PROVISIONED:
                     print("[Success] WiFi provisioning successful!")
-
-                    # Try to get assigned IP
-                    assigned_ip = self.get_assigned_ip()
-                    if assigned_ip != "Unknown":
-                        print(f"[Device] Assigned IP: {assigned_ip}")
-                        print(f"[Info] Access the gateway at: http://{assigned_ip}")
-                    else:
-                        # Extract URL from data if available
-                        if len(data) > 2:
-                            url_len = data[1] if data[1] < len(data) - 2 else len(data) - 2
-                            if url_len > 0:
-                                url = data[2:2+url_len].decode('utf-8', errors='ignore')
+                    # Read the RPC_RESPONSE with URL that follows
+                    url_result = self.read_packet(timeout=3.0)
+                    if url_result:
+                        url_type, url_data = url_result
+                        if url_type == self.TYPE_RPC_RESPONSE and len(url_data) > 2:
+                            url_len = url_data[2]
+                            if url_len > 0 and len(url_data) >= 3 + url_len:
+                                url = url_data[3:3+url_len].decode('utf-8', errors='ignore')
                                 print(f"[Device] Access URL: {url}")
-
                     return True
 
                 elif state == self.STATE_PROVISIONING:
                     print("[Device] Provisioning in progress...")
                     continue
 
-                elif state == 0x00:  # STATE_STOPPED - sent after successful provisioning
-                    # This is normal: device sends STATE_STOPPED (0x00) after STATE_PROVISIONED
-                    # to indicate the provisioning cycle is complete
+                elif state == 0x00:  # STATE_STOPPED
                     print("[Device] Provisioning cycle complete (STATE_STOPPED)")
-                    # Try to get assigned IP
-                    assigned_ip = self.get_assigned_ip()
-                    if assigned_ip != "Unknown":
-                        print(f"[Device] Assigned IP: {assigned_ip}")
-                        print(f"[Info] Access the gateway at: http://{assigned_ip}")
                     return True
 
                 else:
                     print(f"[Error] Unexpected state: 0x{state:02X}")
                     return False
+
+            elif pkt_type == self.TYPE_RPC_RESPONSE:
+                # RPC response (e.g. URL after provisioning) - ignore and continue
+                print(f"[Device] RPC Response: {data.hex()}")
+                continue
 
             elif pkt_type == self.TYPE_ERROR and len(data) >= 1:
                 error = data[0]
