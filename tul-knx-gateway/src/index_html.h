@@ -163,10 +163,21 @@ const char index_html[] PROGMEM = R"rawliteral(
             </section>
 
             <section class="card">
-                <div class="card-header">Firmware Version</div>
+                <div class="card-header">Firmware & System</div>
                 <div class="card-body">
+                    <div class="info-row"><span>Version:</span> <span id="fw_version">-</span></div>
                     <div class="info-row"><span>Build Nummer:</span> <span id="build_number">-</span></div>
                     <div class="info-row"><span>Git Hash:</span> <span id="build_git">-</span></div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-header">Hardware Info</div>
+                <div class="card-body">
+                    <div class="info-row"><span>Prozessor:</span> <span id="hw_cpu">-</span></div>
+                    <div class="info-row"><span>Taktfrequenz:</span> <span id="hw_freq">-</span> MHz</div>
+                    <div class="info-row"><span>RAM (Gesamt):</span> <span id="hw_ram_total">-</span> KB</div>
+                    <div class="info-row"><span>RAM (Frei):</span> <span id="hw_ram_free">-</span> KB</div>
                 </div>
             </section>
 
@@ -175,6 +186,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     <footer>
         TUL/TUL32 KNX/IP Gateway Firmware - basierend auf OpenKNX |
+        Version: <span id="footer_version">-</span> |
         Build: <span id="footer_build">-</span> (<span id="footer_git">-</span>)
     </footer>
 
@@ -215,10 +227,21 @@ const char index_html[] PROGMEM = R"rawliteral(
 
                     // Build info
                     if (data.build) {
+                        document.getElementById('fw_version').innerText = data.build.version;
                         document.getElementById('build_number').innerText = data.build.number;
                         document.getElementById('build_git').innerText = data.build.git;
+                        
+                        document.getElementById('footer_version').innerText = data.build.version;
                         document.getElementById('footer_build').innerText = data.build.number;
                         document.getElementById('footer_git').innerText = data.build.git;
+                    }
+                    
+                    // Hardware info
+                    if (data.hardware) {
+                        document.getElementById('hw_cpu').innerText = data.hardware.chip_model + " (Rev " + data.hardware.chip_rev + ")";
+                        document.getElementById('hw_freq').innerText = data.hardware.cpu_freq;
+                        document.getElementById('hw_ram_total').innerText = Math.round(data.hardware.heap_total / 1024);
+                        document.getElementById('hw_ram_free').innerText = Math.round(data.hardware.heap_free / 1024);
                     }
                 })
                 .catch(error => console.error('Error fetching status:', error));

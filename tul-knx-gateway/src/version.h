@@ -1,2 +1,3 @@
 #define BUILD_GIT "bc8e460"
 #define BUILD_NUMBER 20260408
+#define FIRMWARE_VERSION "1.0.1"
