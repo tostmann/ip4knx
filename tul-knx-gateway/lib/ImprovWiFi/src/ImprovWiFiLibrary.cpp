@@ -51,10 +51,10 @@ bool ImprovWiFi::onCommandCallback(ImprovTypes::ImprovCommand cmd)
   {
   case ImprovTypes::Command::GET_CURRENT_STATE:
   {
-    // ESP WebFlasher expects this response first during initialization
     if (isConnected())
     {
       setState(ImprovTypes::State::STATE_PROVISIONED);
+      sendDeviceUrl(cmd.command);
     }
     else
     {
