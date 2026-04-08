@@ -53,9 +53,26 @@ uint32_t bootTime = 0;
 
 void setup() {
     Serial.begin(115200);
-    delay(2000);
-    Serial.println("Starting TUL KNX/IP Gateway");
 
+    // Setup Improv IMMEDIATELY - ESP Web Tools has only ~2s to detect it
+    // after opening the serial port (which resets the device via USB-JTAG)
+    improvSerial.onImprovConnected(onImprovWiFiConnectedCb);
+    improvSerial.onImprovError(onImprovWiFiErrorCb);
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
+    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C3, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
+#elif defined(CONFIG_IDF_TARGET_ESP32C6)
+    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL32 KNX/IP Gateway", "1.0.0", "TUL32 Gateway");
+#else
+    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
+#endif
+
+    // Handle Improv during early boot - ESP Web Tools sends commands ~2s after port open
+    for (int i = 0; i < 200; i++) {
+        improvSerial.handleSerial();
+        delay(10);
+    }
+
+    Serial.println("Starting TUL KNX/IP Gateway");
     ArduinoPlatform::SerialDebug = &Serial;
 
     pinMode(KNX_LED, OUTPUT);
@@ -71,21 +88,7 @@ void setup() {
     Serial.print("NVS init: ");
     Serial.println(err == ESP_OK ? "OK" : "FAILED");
 
-    // Setup Improv callbacks
-    improvSerial.onImprovConnected(onImprovWiFiConnectedCb);
-    improvSerial.onImprovError(onImprovWiFiErrorCb);
-
-    // Start 120s Improv window immediately at boot
     bootTime = millis();
-    Serial.println("[Info] Improv WiFi provisioning active for 120 seconds...");
-#if defined(CONFIG_IDF_TARGET_ESP32C3)
-    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C3, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
-#elif defined(CONFIG_IDF_TARGET_ESP32C6)
-    // Improv currently uses CF_ESP32 for generic fallback if C6 isn't present
-    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL32 KNX/IP Gateway", "1.0.0", "TUL32 Gateway");
-#else
-    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
-#endif
 
     // Enable WiFi STA mode to read stored credentials
     WiFi.mode(WIFI_STA);
