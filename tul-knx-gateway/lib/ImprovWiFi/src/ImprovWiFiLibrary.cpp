@@ -271,21 +271,26 @@ void ImprovWiFi::getAvailableWifiNetworks()
       }
       
   
-      // Collect all networks into single response
-      std::vector<std::string> allNetworks;
+      // Send each network as SEPARATE packet (ESP WebFlasher expects this!)
+      // See: https://github.com/esphome/esp-web-tools and Improv Serial spec
       for (uint32_t i = 0; i < networkNum; i++) {
           if (-1 == indices[i]) { continue; }                  // Skip dups
           String ssid_copy = WiFi.SSID(indices[i]);
           if (!ssid_copy.length()) { ssid_copy = F("no_name"); }
 
-          allNetworks.push_back(ssid_copy.c_str());
-          allNetworks.push_back(std::to_string(WiFi.RSSI(indices[i])));
-          allNetworks.push_back(getSecurityTypeString(WiFi.encryptionType(indices[i])));
-      }
+          // Each network sent as individual RPC response: {SSID, RSSI, AUTH}
+          std::vector<std::string> networkData;
+          networkData.push_back(ssid_copy.c_str());
+          networkData.push_back(std::to_string(WiFi.RSSI(indices[i])));
+          // Use YES/NO format expected by ESP WebTools (not WPA/WPA2/etc)
+          uint8_t encType = WiFi.encryptionType(indices[i]);
+          bool hasAuth = (encType != WIFI_AUTH_OPEN);
+          networkData.push_back(hasAuth ? "YES" : "NO");
 
-      // Send consolidated response
-      std::vector<uint8_t> data = build_rpc_response(ImprovTypes::GET_WIFI_NETWORKS, allNetworks, false);
-      sendResponse(data);
+          std::vector<uint8_t> data = build_rpc_response(ImprovTypes::GET_WIFI_NETWORKS, networkData, false);
+          sendResponse(data);
+          delay(10); // Small delay between packets
+      }
   }
 
   // final response
