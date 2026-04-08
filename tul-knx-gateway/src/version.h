@@ -1,0 +1,2 @@
+#define BUILD_GIT "bc8e460"
+#define BUILD_NUMBER 20260408
