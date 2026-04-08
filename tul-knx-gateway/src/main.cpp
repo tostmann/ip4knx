@@ -59,11 +59,11 @@ void setup() {
     improvSerial.onImprovConnected(onImprovWiFiConnectedCb);
     improvSerial.onImprovError(onImprovWiFiErrorCb);
 #if defined(CONFIG_IDF_TARGET_ESP32C3)
-    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C3, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
+    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C3, "TUL KNX/IP Gateway", FIRMWARE_VERSION, "TUL Gateway");
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
-    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C6, "TUL32 KNX/IP Gateway", "1.0.0", "TUL32 Gateway");
+    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C6, "TUL32 KNX/IP Gateway", FIRMWARE_VERSION, "TUL32 Gateway");
 #else
-    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL KNX/IP Gateway", "1.0.0", "TUL Gateway");
+    improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32, "TUL KNX/IP Gateway", FIRMWARE_VERSION, "TUL Gateway");
 #endif
 
     // Handle Improv during early boot - ESP Web Tools sends commands ~2s after port open
@@ -222,8 +222,18 @@ void setup() {
 
         // Build info
         json += ",\"build\":{";
+        json += "\"version\":\"" + String(FIRMWARE_VERSION) + "\",";
         json += "\"number\":" + String(BUILD_NUMBER) + ",";
         json += "\"git\":\"" + String(BUILD_GIT) + "\"";
+        json += "},";
+
+        // Hardware info
+        json += "\"hardware\":{";
+        json += "\"chip_model\":\"" + String(ESP.getChipModel()) + "\",";
+        json += "\"chip_rev\":" + String(ESP.getChipRevision()) + ",";
+        json += "\"cpu_freq\":" + String(ESP.getCpuFreqMHz()) + ",";
+        json += "\"heap_total\":" + String(ESP.getHeapSize()) + ",";
+        json += "\"heap_free\":" + String(ESP.getFreeHeap());
         json += "}";
 
         json += "}";
