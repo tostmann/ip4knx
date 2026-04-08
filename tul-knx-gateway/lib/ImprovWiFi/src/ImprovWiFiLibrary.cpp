@@ -2,7 +2,6 @@
 
 void ImprovWiFi::handleSerial()
 {
-  // Read ALL available bytes, not just one
   while (serial->available() > 0)
   {
     uint8_t b = serial->read();
@@ -366,9 +365,10 @@ bool ImprovWiFi::parseImprovSerial(size_t position, uint8_t byte, const uint8_t 
     
     if (type == ImprovTypes::ImprovSerialType::TYPE_RPC)
     {
-      _position = 0;
       auto command = parseImprovData(&buffer[9], data_len, false);
-      return onCommandCallback(command);
+      onCommandCallback(command);
+      _position = 0;
+      return false;  // Return false so handleSerial doesn't increment _position
     }
   }
 

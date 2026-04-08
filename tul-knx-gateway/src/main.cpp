@@ -243,10 +243,10 @@ bool wasConnected = true;
 void loop() {
     knx.loop();
     
-    // Keep ImprovSerial active for 120s after boot, even if connected.
-    if (millis() - bootTime < 120000) {
-        improvSerial.handleSerial();
-    }
+    // ImprovSerial always active - allows re-configuration at any time
+    // via ESP WebFlasher or CLI. USB-JTAG does not reset on port open,
+    // so a time-limited window would expire before the user connects.
+    improvSerial.handleSerial();
 
     // Monitor WiFi Connection
     if (millis() - lastWifiCheck > 5000) {
