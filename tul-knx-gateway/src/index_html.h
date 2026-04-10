@@ -100,6 +100,24 @@ const char index_html[] PROGMEM = R"rawliteral(
         .info-row span:first-child {
             font-weight: bold;
         }
+        /* Modal Styles */
+        .modal {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0;
+            width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe; margin: 10% auto; padding: 20px;
+            border: 1px solid #888; width: 90%; max-width: 400px; border-radius: var(--border-radius);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+        .close:hover, .close:focus { color: black; text-decoration: none; cursor: pointer; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .form-group input, .form-group select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        .btn { background-color: var(--primary-color); color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px; }
+        .btn:hover { opacity: 0.9; }
+        #scan-btn { background-color: #6c757d; margin-bottom: 15px; }
     </style>
 </head>
 <body>
@@ -112,7 +130,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             TUL KNX/IP Gateway
         </div>
         <div class="nav-links">
-            <span id="system-status" class="status-badge status-online">Verbunden</span>
+            <span id="system-status" class="status-badge status-online" style="cursor: pointer;" onclick="openWifiModal()" title="Klicken für WLAN Einstellungen">Verbunden</span>
         </div>
     </nav>
 
@@ -190,7 +208,79 @@ const char index_html[] PROGMEM = R"rawliteral(
         Build: <span id="footer_build">-</span> (<span id="footer_git">-</span>)
     </footer>
 
+    <!-- WiFi Modal -->
+    <div id="wifiModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeWifiModal()">&times;</span>
+            <h2 style="margin-top:0; color:var(--primary-color);">WLAN Konfiguration</h2>
+            <button id="scan-btn" class="btn" onclick="scanWifi()">WLAN Netzwerke suchen</button>
+            <div class="form-group">
+                <label for="ssid">Netzwerkname (SSID):</label>
+                <select id="ssid-select" style="display:none;" onchange="document.getElementById('ssid').value=this.value;">
+                    <option value="">Wählen Sie ein Netzwerk...</option>
+                </select>
+                <input type="text" id="ssid" placeholder="Ihre SSID eingeben">
+            </div>
+            <div class="form-group">
+                <label for="password">Passwort (PSK):</label>
+                <input type="password" id="password" placeholder="Passwort (optional)">
+            </div>
+            <button class="btn" onclick="connectWifi()">Verbinden & Neustarten</button>
+        </div>
+    </div>
+
     <script>
+        function openWifiModal() { document.getElementById('wifiModal').style.display = 'block'; }
+        function closeWifiModal() { document.getElementById('wifiModal').style.display = 'none'; }
+        
+        function scanWifi() {
+            let btn = document.getElementById('scan-btn');
+            btn.innerText = 'Suche läuft...';
+            btn.disabled = true;
+            fetch('/api/wifi/scan')
+                .then(r => r.json())
+                .then(data => {
+                    let sel = document.getElementById('ssid-select');
+                    sel.innerHTML = '<option value="">Wählen Sie ein Netzwerk...</option>';
+                    data.forEach(net => {
+                        let opt = document.createElement('option');
+                        opt.value = net.ssid;
+                        opt.text = net.ssid + ' (' + net.rssi + ' dBm)';
+                        sel.appendChild(opt);
+                    });
+                    sel.style.display = 'block';
+                    btn.innerText = 'WLAN Netzwerke suchen';
+                    btn.disabled = false;
+                })
+                .catch(e => {
+                    alert('Fehler beim Scannen!');
+                    btn.innerText = 'WLAN Netzwerke suchen';
+                    btn.disabled = false;
+                });
+        }
+        
+        function connectWifi() {
+            let ssid = document.getElementById('ssid').value;
+            let pass = document.getElementById('password').value;
+            if(!ssid) { alert('SSID darf nicht leer sein!'); return; }
+            
+            let formData = new URLSearchParams();
+            formData.append('ssid', ssid);
+            formData.append('password', pass);
+            
+            fetch('/api/wifi/connect', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(d => {
+                    if(d.status === 'ok') {
+                        alert('Konfiguration gespeichert. Das Gateway startet nun neu.');
+                        closeWifiModal();
+                    } else {
+                        alert('Fehler: ' + d.error);
+                    }
+                }).catch(e => alert('Fehler beim Senden!'));
+        }
+
+
         function updateStatus() {
             fetch('/api/status')
                 .then(response => response.json())

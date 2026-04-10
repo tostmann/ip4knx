@@ -52,6 +52,8 @@ bool connectWifi(const char *ssid, const char *password) {
 
 uint32_t bootTime = 0;
 bool isApMode = false;
+bool pendingReboot = false;
+uint32_t rebootTime = 0;
 uint32_t buttonPressStart = 0;
 bool buttonState = HIGH;
 DNSServer dnsServer;
@@ -167,6 +169,37 @@ void setup() {
             request->redirect(String("http://") + WiFi.softAPIP().toString() + "/");
         } else {
             request->send(404, "text/plain", "Not found");
+        }
+    });
+
+    server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *request){
+        int n = WiFi.scanNetworks();
+        String json = "[";
+        // filter out duplicates if we want, or just let UI handle it.
+        for (int i = 0; i < n; ++i) {
+            if (i > 0) json += ",";
+            json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+        }
+        json += "]";
+        request->send(200, "application/json", json);
+    });
+
+    server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *request){
+        if(request->hasParam("ssid", true)) {
+            String ssid = request->getParam("ssid", true)->value();
+            String pass = request->hasParam("password", true) ? request->getParam("password", true)->value() : "";
+            
+            Serial.printf("Received WiFi config via Web Portal. SSID: %s\n", ssid.c_str());
+            
+            WiFi.persistent(true);
+            WiFi.begin(ssid.c_str(), pass.c_str());
+            
+            request->send(200, "application/json", "{\"status\":\"ok\"}");
+            
+            pendingReboot = true;
+            rebootTime = millis();
+        } else {
+            request->send(400, "application/json", "{\"error\":\"missing ssid\"}");
         }
     });
 
@@ -368,6 +401,11 @@ void loop() {
             digitalWrite(KNX_LED, HIGH); // OFF
         }
         return; // Skip normal WiFi monitoring while in AP mode
+    }
+
+    if (pendingReboot && (millis() - rebootTime > 2000)) {
+        Serial.println("Rebooting to apply new WiFi credentials...");
+        ESP.restart();
     }
 
     // Monitor WiFi Connection
