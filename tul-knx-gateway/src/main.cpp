@@ -192,10 +192,21 @@ void setup() {
         sprintf(upStr, "%dd %02dh %02dm %02ds", d, h, m, s);
         
         json += "\"uptime\":\"" + String(upStr) + "\",";
-        json += "\"ssid\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("N/A")) + "\",";
-        json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-        json += "\"mac\":\"" + WiFi.macAddress() + "\",";
-        json += "\"wifi_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
+        json += "\"is_ap_mode\":" + String(isApMode ? "true" : "false") + ",";
+        if (isApMode) {
+            String mac = WiFi.softAPmacAddress();
+            mac.replace(":", "");
+            String apName = "TUL AP " + mac.substring(mac.length() - 4);
+            json += "\"ssid\":\"" + apName + "\",";
+            json += "\"ip\":\"" + WiFi.softAPIP().toString() + "\",";
+            json += "\"mac\":\"" + WiFi.softAPmacAddress() + "\",";
+            json += "\"wifi_connected\":true,";
+        } else {
+            json += "\"ssid\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("N/A")) + "\",";
+            json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
+            json += "\"mac\":\"" + WiFi.macAddress() + "\",";
+            json += "\"wifi_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
+        }
         json += "\"knx_configured\":" + String(knx.configured() ? "true" : "false") + ",";
         
         uint16_t pa = knx.individualAddress();
