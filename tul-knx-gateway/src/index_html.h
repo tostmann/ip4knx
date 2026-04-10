@@ -217,12 +217,18 @@ const char index_html[] PROGMEM = R"rawliteral(
                     }
                     
                     let badge = document.getElementById('system-status');
-                    if (data.wifi_connected) {
+                    if (data.is_ap_mode) {
+                        badge.innerText = 'AP Modus Aktiv';
+                        badge.className = 'status-badge status-online';
+                        badge.style.backgroundColor = '#0288d1'; // distinct color for AP mode
+                    } else if (data.wifi_connected) {
                         badge.innerText = 'WLAN Verbunden';
                         badge.className = 'status-badge status-online';
+                        badge.style.backgroundColor = ''; // reset style in case it was set
                     } else {
                         badge.innerText = 'WLAN Getrennt';
                         badge.className = 'status-badge status-offline';
+                        badge.style.backgroundColor = ''; // reset style in case it was set
                     }
 
                     // Build info
