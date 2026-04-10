@@ -8,8 +8,9 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 
 *   **Prio 1: Home Assistant Support:** Auto-discovery via KNXnet/IP Routing and complete multi-client support.
 *   **High Performance Concurrency:** Supports up to **10 concurrent KNXnet/IP Tunneling connections** (e.g., simultaneous use of ETS, Home Assistant, Node-RED, etc.).
-*   **Fallback Access Point (AP Mode):** If Wi-Fi is unavailable after 120 seconds, or if the push button is held for >2s, the gateway broadcasts an open network (`TUL AP <MAC>`). This allows immediate, offline ETS configuration on construction sites.
-*   **Improv-WiFi Provisioning:** Easy initial setup. Connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. Includes a 120-second reconfiguration window after every boot.
+*   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP <MAC>`). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard.
+*   **Web-Based Wi-Fi Setup:** Click the status badge in the web dashboard to open the Wi-Fi configuration modal. Perform a live scan of nearby networks, select your SSID, and enter the password. The gateway will save the credentials and seamlessly reboot into client mode.
+*   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot.
 *   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
 *   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`.
 *   **Hardware Watchdog:** Active Task Watchdog Timer (TWDT) and Wi-Fi connection monitoring for ultimate stability.
@@ -58,15 +59,22 @@ This project uses PlatformIO. The required `knx` and `tpuart` libraries are vend
    ```
 
 ## ⚙️ Initial Setup
-1. Plug the TUL stick into a USB port.
-2. The initial firmware has no Wi-Fi credentials (flashing the factory binary to `0x0000` erases the NVS partition). 
-3. **Provisioning via Web-Serial:** Open the official Webinstaller at [install.busware.de/TUL/](https://install.busware.de/TUL/) and connect to the device. Follow the "Improv-WiFi" prompts to pass your SSID and Password.
-4. **Provisioning via Python Script (CLI):** Alternatively, you can provision the Wi-Fi credentials via command line using the included test script. This is highly useful for automated setups or debugging:
-   ```bash
-   pip install pyserial
-   python3 scripts/test_improv.py --port /dev/ttyUSB0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
-   ```
-5. Once connected, open `http://tul.local` in your browser.
+The firmware is designed for a seamless "Installer Mode" experience on the construction site:
+
+1. **Plug the TUL stick into a USB port or power bank.**
+2. **Connect to the Gateway:** If no Wi-Fi credentials are saved (factory state), the gateway will immediately broadcast an open Wi-Fi network named `TUL AP <MAC>`. Connect to this network with your smartphone or laptop.
+3. **Captive Portal:** A sign-in prompt should automatically appear (Captive Portal), redirecting you to the gateway's web dashboard. If it doesn't, manually open `http://192.168.4.1` in your browser.
+4. **Configure Wi-Fi:** Click on the blue "AP Modus Aktiv" badge in the top right corner. A modal will open. Click "WLAN Netzwerke suchen", select the target Wi-Fi, enter the password, and hit Connect. The device will save the credentials, disable the AP, and reboot into your local network.
+5. **Manual AP Override:** You can force the gateway into AP Mode at any time by pressing and holding the push button on the stick for >2 seconds.
+
+### Alternative: Improv-WiFi Provisioning via USB
+During the first 120 seconds after powering on, you can also provision Wi-Fi credentials via USB:
+*   **Web-Serial:** Open the official Webinstaller at [install.busware.de/TUL/](https://install.busware.de/TUL/) and connect to the device.
+*   **CLI Script:** Highly useful for automated setups or debugging:
+    ```bash
+    pip install pyserial
+    python3 scripts/test_improv.py --port /dev/ttyUSB0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
+    ```
 
 ## 🔧 Utilities
 
