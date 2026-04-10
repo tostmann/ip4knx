@@ -226,6 +226,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                 <input type="password" id="password" placeholder="Passwort (optional)">
             </div>
             <button class="btn" onclick="connectWifi()">Verbinden & Neustarten</button>
+            <hr style="margin: 20px 0; border: 0; border-top: 1px solid #ccc;">
+            <button class="btn" style="background-color: #ef4444;" onclick="startApMode()">Als Access Point (AP) neustarten</button>
         </div>
     </div>
 
@@ -240,13 +242,23 @@ const char index_html[] PROGMEM = R"rawliteral(
             fetch('/api/wifi/scan')
                 .then(r => r.json())
                 .then(data => {
+                    let uniqueNets = {};
+                    data.forEach(net => {
+                        if (!uniqueNets[net.ssid] || uniqueNets[net.ssid].rssi < net.rssi) {
+                            uniqueNets[net.ssid] = net;
+                        }
+                    });
+                    let sortedNets = Object.values(uniqueNets).sort((a, b) => b.rssi - a.rssi);
+
                     let sel = document.getElementById('ssid-select');
                     sel.innerHTML = '<option value="">Wählen Sie ein Netzwerk...</option>';
-                    data.forEach(net => {
-                        let opt = document.createElement('option');
-                        opt.value = net.ssid;
-                        opt.text = net.ssid + ' (' + net.rssi + ' dBm)';
-                        sel.appendChild(opt);
+                    sortedNets.forEach(net => {
+                        if(net.ssid) {
+                            let opt = document.createElement('option');
+                            opt.value = net.ssid;
+                            opt.text = net.ssid + ' (' + net.rssi + ' dBm)';
+                            sel.appendChild(opt);
+                        }
                     });
                     sel.style.display = 'block';
                     btn.innerText = 'WLAN Netzwerke suchen';
@@ -273,6 +285,20 @@ const char index_html[] PROGMEM = R"rawliteral(
                 .then(d => {
                     if(d.status === 'ok') {
                         alert('Konfiguration gespeichert. Das Gateway startet nun neu.');
+                        closeWifiModal();
+                    } else {
+                        alert('Fehler: ' + d.error);
+                    }
+                }).catch(e => alert('Fehler beim Senden!'));
+        }
+
+        function startApMode() {
+            if(!confirm('WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?')) return;
+            fetch('/api/wifi/ap_mode', { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    if(d.status === 'ok') {
+                        alert('WLAN-Daten gelöscht. Das Gateway startet nun im AP-Modus neu.');
                         closeWifiModal();
                     } else {
                         alert('Fehler: ' + d.error);

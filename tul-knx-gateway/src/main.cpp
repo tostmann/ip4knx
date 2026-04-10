@@ -203,6 +203,14 @@ void setup() {
         }
     });
 
+    server.on("/api/wifi/ap_mode", HTTP_POST, [](AsyncWebServerRequest *request){
+        Serial.println("Received request to clear WiFi credentials and start AP mode.");
+        WiFi.disconnect(false, true); // Erase credentials
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+        pendingReboot = true;
+        rebootTime = millis();
+    });
+
     server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
         String json = "{";
         
