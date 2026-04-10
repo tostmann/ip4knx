@@ -50,6 +50,9 @@ bool connectWifi(const char *ssid, const char *password) {
 }
 
 uint32_t bootTime = 0;
+bool isApMode = false;
+uint32_t buttonPressStart = 0;
+bool buttonState = HIGH;
 
 void setup() {
     Serial.begin(115200);
@@ -139,8 +142,15 @@ void setup() {
         Serial.println(WiFi.localIP());
         digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
     } else {
-        Serial.println("[Warning] WiFi not connected - system will continue");
-        digitalWrite(KNX_LED, LOW); // LED ON anyway
+        Serial.println("[Warning] WiFi not connected - Starting Fallback Access Point!");
+        WiFi.mode(WIFI_AP);
+        String mac = WiFi.softAPmacAddress();
+        mac.replace(":", "");
+        String apName = "TUL AP " + mac.substring(mac.length() - 4);
+        WiFi.softAP(apName.c_str());
+        Serial.print("AP IP Address: ");
+        Serial.println(WiFi.softAPIP());
+        isApMode = true;
     }
 
     // === KNX Setup ===
@@ -260,6 +270,40 @@ void loop() {
     // via ESP WebFlasher or CLI. USB-JTAG does not reset on port open,
     // so a time-limited window would expire before the user connects.
     improvSerial.handleSerial();
+
+    // Button long-press logic for AP mode
+    bool currentButtonState = digitalRead(KNX_BUTTON);
+    if (currentButtonState == LOW && buttonState == HIGH) {
+        buttonPressStart = millis();
+    } else if (currentButtonState == LOW && buttonState == LOW) {
+        if (!isApMode && (millis() - buttonPressStart > 2000)) {
+            Serial.println("Button held > 2s - Starting Access Point!");
+            WiFi.disconnect();
+            WiFi.mode(WIFI_AP);
+            String mac = WiFi.softAPmacAddress();
+            mac.replace(":", "");
+            String apName = "TUL AP " + mac.substring(mac.length() - 4);
+            WiFi.softAP(apName.c_str());
+            Serial.print("AP IP Address: ");
+            Serial.println(WiFi.softAPIP());
+            isApMode = true;
+            if (knx.progMode()) {
+                knx.progMode(false);
+            }
+        }
+    }
+    buttonState = currentButtonState;
+
+    if (isApMode) {
+        // Double flash pattern for AP mode: 100ms ON, 100ms OFF, 100ms ON, 700ms OFF
+        uint32_t t = millis() % 1000;
+        if (t < 100 || (t > 200 && t < 300)) {
+            digitalWrite(KNX_LED, LOW); // ON (Active Low)
+        } else {
+            digitalWrite(KNX_LED, HIGH); // OFF
+        }
+        return; // Skip normal WiFi monitoring while in AP mode
+    }
 
     // Monitor WiFi Connection
     if (millis() - lastWifiCheck > 5000) {

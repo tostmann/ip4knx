@@ -8,6 +8,7 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 
 *   **Prio 1: Home Assistant Support:** Auto-discovery via KNXnet/IP Routing and complete multi-client support.
 *   **High Performance Concurrency:** Supports up to **10 concurrent KNXnet/IP Tunneling connections** (e.g., simultaneous use of ETS, Home Assistant, Node-RED, etc.).
+*   **Fallback Access Point (AP Mode):** If Wi-Fi is unavailable after 120 seconds, or if the push button is held for >2s, the gateway broadcasts an open network (`TUL AP <MAC>`). This allows immediate, offline ETS configuration on construction sites.
 *   **Improv-WiFi Provisioning:** Easy initial setup. Connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. Includes a 120-second reconfiguration window after every boot.
 *   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
 *   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`.
