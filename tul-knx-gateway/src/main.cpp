@@ -1,6 +1,7 @@
 #include <Network.h>
 #include <Arduino.h>
 #include <WiFi.h>
+#include <DNSServer.h>
 #include "version.h"
 #include <knx.h>
 #include "ImprovWiFiLibrary.h"
@@ -53,6 +54,8 @@ uint32_t bootTime = 0;
 bool isApMode = false;
 uint32_t buttonPressStart = 0;
 bool buttonState = HIGH;
+DNSServer dnsServer;
+const byte DNS_PORT = 53;
 
 void setup() {
     Serial.begin(115200);
@@ -93,8 +96,8 @@ void setup() {
 
     bootTime = millis();
 
-    // Enable WiFi STA mode to read stored credentials
-    WiFi.mode(WIFI_STA);
+    // Enable WiFi AP_STA mode so we can scan and host AP simultaneously
+    WiFi.mode(WIFI_AP_STA);
     WiFi.disconnect(); // Clear any stale connection state
 
     // Check for stored credentials
@@ -104,54 +107,24 @@ void setup() {
     Serial.print("WiFi PSK length: ");
     Serial.println(WiFi.psk().length());
 
-    // Wait for WiFi connection ONLY within the 120s Improv window
-    // This allows re-configuration even if credentials are stored
     const uint32_t improvWindowMs = 120000;  // 120 seconds
 
-    if (hasCredentials) {
-        Serial.println("WiFi credentials found, attempting auto-reconnect...");
-        WiFi.begin();
-
-        // Wait for connection, but keep Improv active and respect 120s window
-        while (WiFi.status() != WL_CONNECTED && (millis() - bootTime < improvWindowMs)) {
-            improvSerial.handleSerial();
-            delay(10);
-        }
-    } else {
-        Serial.println("No WiFi credentials stored.");
-    }
-
-    // If not connected after initial attempt, wait for Improv provisioning
-    // for the remainder of the 120s window
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("Waiting for Improv WiFi provisioning...");
-
-        while (WiFi.status() != WL_CONNECTED && (millis() - bootTime < improvWindowMs)) {
-            improvSerial.handleSerial();
-            delay(10);
-        }
-
-        if (improvConnected) {
-            Serial.println("[Info] WiFi configured via Improv");
-        }
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("WiFi connected!");
-        Serial.print("IP Address: ");
-        Serial.println(WiFi.localIP());
-        digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
-    } else {
-        Serial.println("[Warning] WiFi not connected - Starting Fallback Access Point!");
-        WiFi.mode(WIFI_AP);
+    if (!hasCredentials) {
+        Serial.println("No WiFi credentials stored - Starting AP immediately!");
         String mac = WiFi.softAPmacAddress();
         mac.replace(":", "");
         String apName = "TUL AP " + mac.substring(mac.length() - 4);
         WiFi.softAP(apName.c_str());
+        dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+        isApMode = true;
         Serial.print("AP IP Address: ");
         Serial.println(WiFi.softAPIP());
-        isApMode = true;
+    } else {
+        Serial.println("WiFi credentials found, attempting auto-reconnect...");
+        WiFi.begin();
     }
+
+
 
     // === KNX Setup ===
     
@@ -176,7 +149,25 @@ void setup() {
     Serial.printf("KNX Gateway running! (Build %lu, Git %s)\n", (unsigned long)BUILD_NUMBER, BUILD_GIT);
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-        request->send_P(200, "text/html", index_html);
+        request->send(200, "text/html", index_html);
+    });
+
+    // Captive Portal Handlers
+    server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->redirect(String("http://") + WiFi.softAPIP().toString() + "/");
+    });
+    server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->redirect(String("http://") + WiFi.softAPIP().toString() + "/");
+    });
+    server.on("/canonical.html", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->redirect(String("http://") + WiFi.softAPIP().toString() + "/");
+    });
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        if (isApMode) {
+            request->redirect(String("http://") + WiFi.softAPIP().toString() + "/");
+        } else {
+            request->send(404, "text/plain", "Not found");
+        }
     });
 
     server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -268,6 +259,67 @@ void setup() {
         MDNS.addService("http", "tcp", 80);
         Serial.println("mDNS responder started: http://tul.local");
     }
+
+    // Wait for connection OR wait for Improv/Button
+    while (WiFi.status() != WL_CONNECTED && (millis() - bootTime < improvWindowMs)) {
+        improvSerial.handleSerial();
+        if (isApMode) {
+            dnsServer.processNextRequest();
+        }
+
+        bool currentButtonState = digitalRead(KNX_BUTTON);
+        if (currentButtonState == LOW && buttonState == HIGH) {
+            buttonPressStart = millis();
+        } else if (currentButtonState == LOW && buttonState == LOW) {
+            if (!isApMode && (millis() - buttonPressStart > 2000)) {
+                Serial.println("Button held > 2s during boot - Starting Access Point!");
+                String mac = WiFi.softAPmacAddress();
+                mac.replace(":", "");
+                String apName = "TUL AP " + mac.substring(mac.length() - 4);
+                WiFi.softAP(apName.c_str());
+                dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+                isApMode = true;
+                Serial.print("AP IP Address: ");
+                Serial.println(WiFi.softAPIP());
+                
+                // Optional: clear credentials so it stays in AP mode if it was failing?
+                // Let's just start AP.
+            }
+        }
+        buttonState = currentButtonState;
+        
+        delay(10);
+    }
+
+    if (improvConnected) {
+        Serial.println("[Info] WiFi configured via Improv");
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("WiFi connected!");
+        Serial.print("IP Address: ");
+        Serial.println(WiFi.localIP());
+        if (isApMode) {
+            Serial.println("Shutting down AP as Station connected successfully.");
+            WiFi.softAPdisconnect(true);
+            WiFi.mode(WIFI_STA);
+            isApMode = false;
+        }
+        digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
+    } else {
+        if (!isApMode) {
+            Serial.println("[Warning] WiFi not connected - Starting Fallback Access Point!");
+            String mac = WiFi.softAPmacAddress();
+            mac.replace(":", "");
+            String apName = "TUL AP " + mac.substring(mac.length() - 4);
+            WiFi.softAP(apName.c_str());
+            Serial.print("AP IP Address: ");
+            Serial.println(WiFi.softAPIP());
+            dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+            isApMode = true;
+        }
+        digitalWrite(KNX_LED, LOW); // LED ON anyway
+    }
 }
 
 uint32_t lastWifiCheck = 0;
@@ -290,11 +342,12 @@ void loop() {
         if (!isApMode && (millis() - buttonPressStart > 2000)) {
             Serial.println("Button held > 2s - Starting Access Point!");
             WiFi.disconnect();
-            WiFi.mode(WIFI_AP);
+            WiFi.mode(WIFI_AP_STA);
             String mac = WiFi.softAPmacAddress();
             mac.replace(":", "");
             String apName = "TUL AP " + mac.substring(mac.length() - 4);
             WiFi.softAP(apName.c_str());
+            dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
             Serial.print("AP IP Address: ");
             Serial.println(WiFi.softAPIP());
             isApMode = true;
@@ -306,6 +359,7 @@ void loop() {
     buttonState = currentButtonState;
 
     if (isApMode) {
+        dnsServer.processNextRequest();
         // Double flash pattern for AP mode: 100ms ON, 100ms OFF, 100ms ON, 700ms OFF
         uint32_t t = millis() % 1000;
         if (t < 100 || (t > 200 && t < 300)) {
