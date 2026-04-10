@@ -369,6 +369,11 @@ bool wasConnected = true;
 
 void loop() {
     knx.loop();
+
+    if (pendingReboot && (millis() - rebootTime > 2000)) {
+        Serial.println("Rebooting to apply new WiFi credentials...");
+        ESP.restart();
+    }
     
     // ImprovSerial always active - allows re-configuration at any time
     // via ESP WebFlasher or CLI. USB-JTAG does not reset on port open,
@@ -409,11 +414,6 @@ void loop() {
             digitalWrite(KNX_LED, HIGH); // OFF
         }
         return; // Skip normal WiFi monitoring while in AP mode
-    }
-
-    if (pendingReboot && (millis() - rebootTime > 2000)) {
-        Serial.println("Rebooting to apply new WiFi credentials...");
-        ESP.restart();
     }
 
     // Monitor WiFi Connection
