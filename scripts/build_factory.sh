@@ -33,6 +33,9 @@ mkdir -p "$BINARIES_DIR"
 # Change to build directory
 cd "$BUILD_DIR"
 
+# Update version info
+bash update_version.sh
+
 # Build the firmware
 echo "[1/3] Building firmware with PlatformIO..."
 $HOME/.platformio/penv/bin/pio run -e "$TARGET"
