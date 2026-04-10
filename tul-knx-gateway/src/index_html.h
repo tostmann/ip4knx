@@ -7,10 +7,10 @@ const char index_html[] PROGMEM = R"rawliteral(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TUL KNX/IP Gateway</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2300549f'/%3E%3Cpath d='M32 44a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm-10-14a14 14 0 0 1 20 0m-28-10a24 24 0 0 1 36 0' fill='none' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2374b836'/%3E%3Ctext x='16' y='46' font-family='Verdana' font-size='40' font-weight='bold' fill='white'%3Eb%3C/text%3E%3C/svg%3E">
     <style>
         :root {
-            --primary-color: #00549f; /* Typisches KNX Blau */
+            --primary-color: #74b836; /* Busware Green */
             --bg-color: #f4f7f6;
             --card-bg: #ffffff;
             --text-color: #333;
@@ -123,9 +123,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 <body>
     <nav class="navbar">
         <div class="navbar-brand">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" style="height:40px; margin-right:15px;">
-                <rect width="64" height="64" rx="12" fill="#fff"/>
-                <path d="M32 44a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm-10-14a14 14 0 0 1 20 0m-28-10a24 24 0 0 1 36 0" fill="none" stroke="#00549f" stroke-width="5" stroke-linecap="round"/>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 40" style="height:40px; margin-right:15px;">
+                <text x="0" y="30" font-family="Verdana, sans-serif" font-size="32" font-weight="bold" fill="#ffffff" letter-spacing="-1">busware<tspan fill="#333333">.</tspan></text>
             </svg>
             TUL KNX/IP Gateway
         </div>
@@ -203,7 +202,8 @@ const char index_html[] PROGMEM = R"rawliteral(
     </main>
 
     <footer>
-        TUL/TUL32 KNX/IP Gateway Firmware - basierend auf OpenKNX |
+        TUL/TUL32 KNX/IP Gateway Firmware - basierend auf <a href="https://github.com/OpenKNX" target="_blank" style="color:var(--primary-color);text-decoration:none;">OpenKNX</a> | 
+        <a href="https://github.com/tostmann/ip4knx" target="_blank" style="color:var(--primary-color);text-decoration:none;">GitHub Repository</a><br>
         Version: <span id="footer_version">-</span> |
         Build: <span id="footer_build">-</span> (<span id="footer_git">-</span>)
     </footer>
