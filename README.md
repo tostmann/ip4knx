@@ -48,10 +48,11 @@ The hosted web flasher detects your hardware and flashes the factory image direc
 Works in Chrome, Edge, and Opera (browsers with Web Serial API). Plug in the stick, hit *Install*, the page chips through factory image + Wi-Fi provisioning (Improv) in one flow. After a subsequent firmware bump, the same page can be used to update existing devices (or use the in-device OTA — see Features above).
 
 ### Option B: Local `esptool.py`
-If you have a pre-built factory image (build it yourself via `scripts/build_factory.sh` — pre-built images are not checked into the repo):
+The `binaries/` directory is intentionally empty in a fresh checkout — factory images are build artifacts, not source. Generate one first and flash it:
 
 ```bash
-esptool.py --chip <esp32c3|esp32c6> write_flash 0x0000 binaries/factory_<target>.bin
+./scripts/build_factory.sh tul32_esp32c6    # or tul_esp32c3
+esptool.py --chip esp32c6 write_flash 0x0000 binaries/factory_tul32_esp32c6.bin
 ```
 
 ### Option C: Build from Source (PlatformIO)
