@@ -1067,24 +1067,33 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
     // client. Rewriting matches the behaviour of MDT/Weinzierl/Gira gateways
     // — keeps ETS commissioning working when a tool sends a non-zero source,
     // and stops a client from impersonating another tunnel's address.
-    uint16_t src = tunnReq.frame().sourceAddress();
-    if (src == 0)
+    //
+    // GUARD: only apply to L_Data_req. CemiFrame::sourceAddress() unconditionally
+    // reads/writes bytes at _ctrl1+2 (= addl_info_len+4 from cEMI start), which
+    // for L_Data are the src IA bytes — but for M_PropRead_req / M_PropWrite_req
+    // those same bytes are propertyId / noE+startIdx, so calling sourceAddress()
+    // on a non-L_Data frame corrupts the request.
+    if (tunnReq.frame().messageCode() == L_data_req)
     {
-        tunnReq.frame().sourceAddress(tun->IndividualAddress);
-    }
-    else if (src != tun->IndividualAddress)
-    {
+        uint16_t src = tunnReq.frame().sourceAddress();
+        if (src == 0)
+        {
+            tunnReq.frame().sourceAddress(tun->IndividualAddress);
+        }
+        else if (src != tun->IndividualAddress)
+        {
 #ifdef KNX_LOG_TUNNELING
-        print("Tunnel 0x");
-        print(tun->ChannelId, 16);
-        print(": source ");
-        print((src >> 12) & 0xF); print("."); print((src >> 8) & 0xF); print("."); print(src & 0xFF);
-        print(" rewritten to assigned ");
-        print((tun->IndividualAddress >> 12) & 0xF); print(".");
-        print((tun->IndividualAddress >> 8) & 0xF); print(".");
-        println(tun->IndividualAddress & 0xFF);
+            print("Tunnel 0x");
+            print(tun->ChannelId, 16);
+            print(": source ");
+            print((src >> 12) & 0xF); print("."); print((src >> 8) & 0xF); print("."); print(src & 0xFF);
+            print(" rewritten to assigned ");
+            print((tun->IndividualAddress >> 12) & 0xF); print(".");
+            print((tun->IndividualAddress >> 8) & 0xF); print(".");
+            println(tun->IndividualAddress & 0xFF);
 #endif
-        tunnReq.frame().sourceAddress(tun->IndividualAddress);
+            tunnReq.frame().sourceAddress(tun->IndividualAddress);
+        }
     }
 
     _cemiServer->frameReceived(tunnReq.frame(), tun->ChannelId);

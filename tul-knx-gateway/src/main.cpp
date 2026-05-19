@@ -246,10 +246,6 @@ static void updateInstallTask(void* arg) {
         return;
     }
 
-    // writeStream blocks for the full download (~1.4 MB). The Update class
-    // fires _progress_callback after every flash sector (4 KB) via onProgress
-    // — pipe that into updateInfo so the dashboard's status poll has live
-    // values to render.
     Update.onProgress([](size_t progress, size_t total) {
         updateInfo.progress = progress;
         if (total != 0 && total != (size_t)-1) {
@@ -257,7 +253,54 @@ static void updateInstallTask(void* arg) {
         }
     });
 
-    size_t written = Update.writeStream(*stream);
+    // Manual fetch loop bypasses Update.writeStream() — which calls
+    // data.peek() before the read loop. On some ESP32-Arduino +
+    // WiFiClientSecure versions that peek can desync the stream by one
+    // byte, producing an MD5 mismatch even though all bytes appear to
+    // be received. Reading explicitly with stream->readBytes() into our
+    // own buffer + Update.write() avoids that path entirely. Also lets
+    // us print MD5 telemetry on failure.
+    uint8_t* buf = (uint8_t*)malloc(2048);
+    if (!buf) {
+        updateInfo.error = "malloc(2048) failed";
+        updateInfo.state = UPD_ERROR;
+        Update.abort();
+        https.end();
+        vTaskDelete(NULL);
+        return;
+    }
+    size_t written = 0;
+    int timeout_failures = 0;
+    while ((int)written < len) {
+        int toRead = (int)((len - written) < 2048 ? (len - written) : 2048);
+        int got = stream->readBytes((char*)buf, toRead);
+        if (got <= 0) {
+            if (++timeout_failures >= 300) {
+                updateInfo.error = "stream read timeout";
+                free(buf);
+                Update.abort();
+                https.end();
+                updateInfo.state = UPD_ERROR;
+                vTaskDelete(NULL);
+                return;
+            }
+            delay(100);
+            continue;
+        }
+        timeout_failures = 0;
+        size_t w = Update.write(buf, (size_t)got);
+        if (w != (size_t)got) {
+            updateInfo.error = String("Update.write short: ") + Update.errorString();
+            free(buf);
+            Update.abort();
+            https.end();
+            updateInfo.state = UPD_ERROR;
+            vTaskDelete(NULL);
+            return;
+        }
+        written += got;
+    }
+    free(buf);
     updateInfo.progress = written;
 
     if (!Update.end(true)) {
