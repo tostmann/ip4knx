@@ -39,7 +39,7 @@ class CemiServer
     void dataConfirmationToTunnel(CemiFrame& frame);
 
     // From tunnel interface
-    void frameReceived(CemiFrame& frame);
+    void frameReceived(CemiFrame& frame, uint8_t channelId = 0);
 
     uint16_t clientAddress() const;
     void clientAddress(uint16_t value);
@@ -51,9 +51,9 @@ class CemiServer
     uint8_t _frameNumber = 0;
 
     void handleLData(CemiFrame& frame);
-    void handleMPropRead(CemiFrame& frame);
-    void handleMPropWrite(CemiFrame& frame);
-    void handleMReset(CemiFrame& frame);
+    void handleMPropRead(CemiFrame& frame, uint8_t channelId);
+    void handleMPropWrite(CemiFrame& frame, uint8_t channelId);
+    void handleMReset(CemiFrame& frame, uint8_t channelId);
 
     DataLinkLayer* _dataLinkLayer = nullptr;
 #ifdef KNX_TUNNELING

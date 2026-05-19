@@ -3,8 +3,9 @@
 This project provides a highly stable KNX/IP gateway firmware for the TUL and TUL32 busware USB sticks.
 
 ## Architecture & Improvements
-* **Core Stack**: Based on `OpenKNX/knx` for superior modularity, active maintenance, and critical ETS stability fixes (e.g., correct physical address assignment for tunneling devices).
-* **Hardware Support**: Uses a patched, local version of `OpenKNX/tpuart` (`lib/TPUart`) to correctly initialize the NCN5130 chip. The original bitmasks for the ACR0 register (DC2EN, V20VEN, etc.) were corrected according to the ON Semiconductor datasheet.
+* **Core Stack**: Vendored from `OpenKNX/knx` (V2.3.1 base, 2026-04) with local patches for stability and stronger tunnel source-address validation. We track upstream selectively rather than as a downstream fork — see the project memory for the current cherry-pick state.
+* **Hardware Support**: Uses a patched, local version of `OpenKNX/tpuart` (`lib/TPUart`) to correctly initialize the NCN5130 chip. The original bitmasks for the ACR0 register (DC2EN, V20VEN, etc.) were corrected according to the ON Semiconductor datasheet. Also includes our own `_baudrate` getter, 30 s disconnect-watchdog (raised from 5 s), active-recovery state-request poke, and `setBCUState()` reset path.
+* **OTA & Anti-Brick**: Dual-app partition layout (`partitions_4mb_ota.csv`); the bootloader's app-rollback feature marks a freshly-installed partition as `PENDING_VERIFY` for the first 30 s of uptime, falling back to the previous partition on next boot if the new firmware crashes. Online OTA fetches from a signed manifest at `install.busware.de/ip4knx/` with browser-side MD5 verification.
 * **UX & Commissioning**: Implements `Improv-WiFi-Library` over the Serial/JTAG port. This allows users to easily provision WiFi credentials via a browser using WebSerial (https://www.improv-wifi.com) while flashing the factory image.
 
 ## Building & Flashing

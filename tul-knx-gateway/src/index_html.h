@@ -85,6 +85,20 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
         .status-online { background: #d4edda; color: #155724; }
         .status-offline { background: #f8d7da; color: #721c24; }
+        .rail-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .rail-row > span:first-child { color: #555; min-width: 110px; }
+        .rail-badge {
+            display: inline-block;
+            padding: 2px 7px;
+            border-radius: 3px;
+            font-size: 0.78em;
+            font-weight: bold;
+            background: #888;
+            color: #eee;
+            font-family: monospace;
+        }
+        .rail-badge.ok  { background: #2c7a3d; color: #fff; }
+        .rail-badge.bad { background: #a02828; color: #fff; }
         footer {
             text-align: center;
             padding: 1rem;
@@ -117,7 +131,11 @@ const char index_html[] PROGMEM = R"rawliteral(
         .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
         .form-group input, .form-group select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
         .btn { background-color: var(--primary-color); color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px; }
-        .btn:hover { opacity: 0.9; }
+        .btn:hover:not(:disabled) { opacity: 0.9; }
+        .btn:disabled { background-color: #9ca3af; cursor: not-allowed; opacity: 0.7; }
+        .btn-inline { background-color: var(--primary-color); color: white; padding: 3px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; margin-left: 8px; }
+        .btn-inline:hover:not(:disabled) { opacity: 0.9; }
+        .btn-inline:disabled { background-color: #9ca3af; cursor: not-allowed; opacity: 0.7; }
         #scan-btn { background-color: #6c757d; margin-bottom: 15px; }
     </style>
 </head>
@@ -150,6 +168,13 @@ const char index_html[] PROGMEM = R"rawliteral(
                 <div class="card-body">
                     <div class="info-row"><span>Programmiert (ETS):</span> <span id="knx_configured">-</span></div>
                     <div class="info-row"><span>Physikalische Adresse:</span> <span id="knx_pa">-</span></div>
+                    <div class="info-row">
+                        <span>Programmier-Modus:</span>
+                        <span>
+                            <span id="prog_mode" class="status-badge status-offline">-</span>
+                            <button id="prog-toggle-btn" class="btn-inline" onclick="toggleProgMode()">Umschalten</button>
+                        </span>
+                    </div>
                     <div class="info-row"><span>Status LED Pin:</span> <span id="knx_led_pin">-</span></div>
                     <div class="info-row"><span>Prog Button Pin:</span> <span id="knx_btn_pin">-</span></div>
                 </div>
@@ -163,6 +188,30 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <br>
                     <small style="color:#666;">
                         Das Gateway unterst&uuml;tzt parallele KNXnet/IP Tunneling-Verbindungen (z.B. f&uuml;r ETS & HomeAssistant).
+                    </small>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-header">NCN5130 Transceiver</div>
+                <div class="card-body">
+                    <div class="info-row"><span>Typ:</span> <span id="ncn_type">-</span></div>
+                    <div class="info-row"><span>Zustand:</span> <span id="ncn_state" class="status-badge">-</span></div>
+                    <div class="info-row"><span>Modus:</span> <span id="ncn_mode">-</span></div>
+                    <div class="info-row"><span>Baudrate:</span> <span id="ncn_baud">-</span></div>
+                    <div class="info-row rail-row">
+                        <span>Power Rails:</span>
+                        <span id="ncn_v20v"  class="rail-badge" title="V20V linearer Spannungsregler in normalem Betriebsbereich">V20V</span>
+                        <span id="ncn_vdd2"  class="rail-badge" title="DC2-Regler in normalem Betriebsbereich">VDD2</span>
+                        <span id="ncn_vbus"  class="rail-badge" title="KNX-Busspannung im normalen Bereich">VBUS</span>
+                        <span id="ncn_vfilt" class="rail-badge" title="Tank-Capacitor in normalem Bereich">VFILT</span>
+                        <span id="ncn_xtal"  class="rail-badge" title="Quarz-Oszillator-Frequenz im normalen Bereich">XTAL</span>
+                        <span id="ncn_tw"    class="rail-badge bad" style="display:none;" title="Thermal Warning aktiv">TW</span>
+                    </div>
+                    <br>
+                    <small style="color:#666;">
+                        Wird beim Boot getestet (U_RESET_REQ / U_STATE_REQ &uuml;ber UART). VBUS ist der prim&auml;re Indikator
+                        f&uuml;r angeschlossene KNX-Busspannung.
                     </small>
                 </div>
             </section>
@@ -184,6 +233,39 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <div class="info-row"><span>Version:</span> <span id="fw_version">-</span></div>
                     <div class="info-row"><span>Build Nummer:</span> <span id="build_number">-</span></div>
                     <div class="info-row"><span>Git Hash:</span> <span id="build_git">-</span></div>
+                    <div class="info-row"><span>Aktive Partition:</span> <span id="boot_part">-</span> (<span id="boot_state">-</span>)</div>
+
+                    <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
+                    <div style="font-weight:bold; margin-bottom:6px;">Online-Update</div>
+                    <small style="color:#666; display:block; margin-bottom:8px;">
+                        Aktualisierung direkt von <code>install.busware.de/ip4knx/</code>.
+                        Integrität per MD5 aus dem Manifest. Anti-Brick: app1-Boot wird
+                        nur bei korrekter MD5 aktiviert.
+                    </small>
+                    <div class="info-row">
+                        <span>Neueste Version:</span>
+                        <span>
+                            <span id="upd_latest">—</span>
+                            <span id="upd_avail_badge" class="status-badge status-online" style="display:none; margin-left:6px;">verfügbar</span>
+                        </span>
+                    </div>
+                    <div id="upd_status" style="font-size:0.85rem; color:#555; margin:6px 0;">Stand unbekannt — Suche starten.</div>
+                    <progress id="upd_progress" value="0" max="100" style="width:100%; display:none;"></progress>
+                    <div style="display:flex; gap:8px; margin-top:8px;">
+                        <button id="upd-check-btn"   class="btn" style="background:#6c757d;" onclick="checkOnlineUpdate()">Nach Update suchen</button>
+                        <button id="upd-install-btn" class="btn" onclick="installOnlineUpdate()" disabled>Jetzt aktualisieren</button>
+                    </div>
+
+                    <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
+                    <div style="font-weight:bold; margin-bottom:6px;">Manuelle Firmware-Datei</div>
+                    <small style="color:#666; display:block; margin-bottom:8px;">
+                        <code>firmware.bin</code> hochladen. MD5 wird browser-seitig berechnet und geprüft;
+                        bei Mismatch wird die Boot-Partition NICHT umgestellt (Anti-Brick).
+                    </small>
+                    <input type="file" id="ota-file" accept=".bin" style="width:100%; margin-bottom:8px;">
+                    <div id="ota-status" style="font-size:0.85rem; color:#555; margin-bottom:6px;">Keine Datei ausgewählt.</div>
+                    <progress id="ota-progress" value="0" max="100" style="width:100%; display:none;"></progress>
+                    <button id="ota-btn" class="btn" onclick="startOta()" disabled>Firmware hochladen</button>
                 </div>
             </section>
 
@@ -291,6 +373,235 @@ const char index_html[] PROGMEM = R"rawliteral(
                 }).catch(e => alert('Fehler beim Senden!'));
         }
 
+        // === Online-Update (HTTPS-pull from install.busware.de) ===
+        let updPollHandle = null;
+
+        function renderUpdState(d) {
+            const latestEl  = document.getElementById('upd_latest');
+            const badge     = document.getElementById('upd_avail_badge');
+            const status    = document.getElementById('upd_status');
+            const prog      = document.getElementById('upd_progress');
+            const checkBtn  = document.getElementById('upd-check-btn');
+            const installBtn = document.getElementById('upd-install-btn');
+
+            latestEl.innerText = d.latest || '—';
+            badge.style.display = (d.state === 'available') ? 'inline-block' : 'none';
+
+            let msg = '';
+            switch (d.state) {
+                case 'idle':       msg = d.latest ? ('Aktuelle Version ist die neueste (' + d.latest + ').') : 'Stand unbekannt — Suche starten.'; break;
+                case 'checking':   msg = 'Manifest wird geladen…'; break;
+                case 'available':  msg = 'Update verfügbar: ' + d.latest + ' (aktuell ' + d.current + ').'; break;
+                case 'installing': msg = 'Installation läuft… ' + d.progress + ' / ' + (d.total || '?') + ' Bytes'; break;
+                case 'done':       msg = 'Erfolgreich — Gateway startet neu. Seite lädt automatisch.'; break;
+                case 'error':      msg = 'Fehler: ' + (d.error || 'unbekannt'); break;
+            }
+            status.innerText = msg;
+
+            if (d.state === 'installing' && d.total > 0) {
+                prog.style.display = 'block';
+                prog.value = (d.progress / d.total) * 100;
+            } else if (d.state === 'done') {
+                prog.style.display = 'block';
+                prog.value = 100;
+            } else {
+                prog.style.display = 'none';
+            }
+
+            checkBtn.disabled   = (d.state === 'checking' || d.state === 'installing');
+            installBtn.disabled = (d.state !== 'available');
+
+            if (d.state === 'installing') {
+                if (!updPollHandle) updPollHandle = setInterval(pollUpdStatus, 1000);
+            } else if (d.state === 'done') {
+                if (updPollHandle) { clearInterval(updPollHandle); updPollHandle = null; }
+                setTimeout(() => window.location.reload(), 12000);
+            } else {
+                if (updPollHandle) { clearInterval(updPollHandle); updPollHandle = null; }
+            }
+        }
+
+        function pollUpdStatus() {
+            fetch('/api/update/status')
+                .then(r => r.json())
+                .then(renderUpdState)
+                .catch(() => { /* tolerate one-off failures during reboot window */ });
+        }
+
+        function checkOnlineUpdate() {
+            document.getElementById('upd_status').innerText = 'Manifest wird geladen…';
+            document.getElementById('upd-check-btn').disabled = true;
+            fetch('/api/update/check')
+                .then(r => r.json())
+                .then(renderUpdState)
+                .catch(e => {
+                    document.getElementById('upd_status').innerText = 'Fehler: ' + e;
+                    document.getElementById('upd-check-btn').disabled = false;
+                });
+        }
+
+        function installOnlineUpdate() {
+            if (!confirm('Online-Update jetzt installieren? Das Gateway startet anschließend neu.')) return;
+            fetch('/api/update/install', { method: 'POST' })
+                .then(r => r.json())
+                .then(renderUpdState)
+                .catch(e => alert('Fehler beim Starten: ' + e));
+        }
+
+        // === OTA upload ===
+        document.addEventListener('DOMContentLoaded', () => {
+            const f = document.getElementById('ota-file');
+            if (f) f.addEventListener('change', () => {
+                const btn = document.getElementById('ota-btn');
+                const st  = document.getElementById('ota-status');
+                if (f.files && f.files[0]) {
+                    btn.disabled = false;
+                    st.textContent = f.files[0].name + ' (' + (f.files[0].size/1024).toFixed(1) + ' KB)';
+                } else {
+                    btn.disabled = true;
+                    st.textContent = 'Keine Datei ausgewählt.';
+                }
+            });
+        });
+
+        async function md5HexOfBlob(blob) {
+            // Browser hat von Haus aus kein MD5 in crypto.subtle. Wir bauen es
+            // inline aus reinem JS, ~80 LOC. Eingangs-Daten: ArrayBuffer.
+            const buf = new Uint8Array(await blob.arrayBuffer());
+            // RFC 1321 reference implementation, byte-array I/O.
+            function add32(a,b){ return (a+b)&0xFFFFFFFF; }
+            function rol(n,s){ return ((n<<s)|(n>>>(32-s)))&0xFFFFFFFF; }
+            function cmn(q,a,b,x,s,t){ return add32(rol(add32(add32(a,q),add32(x,t)),s),b); }
+            function ff(a,b,c,d,x,s,t){ return cmn((b&c)|((~b)&d),a,b,x,s,t); }
+            function gg(a,b,c,d,x,s,t){ return cmn((b&d)|(c&(~d)),a,b,x,s,t); }
+            function hh(a,b,c,d,x,s,t){ return cmn(b^c^d,a,b,x,s,t); }
+            function ii(a,b,c,d,x,s,t){ return cmn(c^(b|(~d)),a,b,x,s,t); }
+            const n = buf.length;
+            const nWords = ((n + 8) >> 6) + 1;
+            const words = new Int32Array(nWords * 16);
+            for (let i=0;i<n;i++) words[i>>2] |= buf[i] << ((i%4)*8);
+            words[n>>2] |= 0x80 << ((n%4)*8);
+            words[nWords*16-2] = n*8;
+            let a=1732584193, b=-271733879, c=-1732584194, d=271733878;
+            for (let i=0;i<words.length;i+=16) {
+                const oa=a,ob=b,oc=c,od=d;
+                a=ff(a,b,c,d,words[i+ 0], 7,-680876936); d=ff(d,a,b,c,words[i+ 1],12,-389564586);
+                c=ff(c,d,a,b,words[i+ 2],17, 606105819); b=ff(b,c,d,a,words[i+ 3],22,-1044525330);
+                a=ff(a,b,c,d,words[i+ 4], 7,-176418897); d=ff(d,a,b,c,words[i+ 5],12, 1200080426);
+                c=ff(c,d,a,b,words[i+ 6],17,-1473231341); b=ff(b,c,d,a,words[i+ 7],22,-45705983);
+                a=ff(a,b,c,d,words[i+ 8], 7, 1770035416); d=ff(d,a,b,c,words[i+ 9],12,-1958414417);
+                c=ff(c,d,a,b,words[i+10],17,-42063); b=ff(b,c,d,a,words[i+11],22,-1990404162);
+                a=ff(a,b,c,d,words[i+12], 7, 1804603682); d=ff(d,a,b,c,words[i+13],12,-40341101);
+                c=ff(c,d,a,b,words[i+14],17,-1502002290); b=ff(b,c,d,a,words[i+15],22, 1236535329);
+                a=gg(a,b,c,d,words[i+ 1], 5,-165796510); d=gg(d,a,b,c,words[i+ 6], 9,-1069501632);
+                c=gg(c,d,a,b,words[i+11],14, 643717713); b=gg(b,c,d,a,words[i+ 0],20,-373897302);
+                a=gg(a,b,c,d,words[i+ 5], 5,-701558691); d=gg(d,a,b,c,words[i+10], 9, 38016083);
+                c=gg(c,d,a,b,words[i+15],14,-660478335); b=gg(b,c,d,a,words[i+ 4],20,-405537848);
+                a=gg(a,b,c,d,words[i+ 9], 5, 568446438); d=gg(d,a,b,c,words[i+14], 9,-1019803690);
+                c=gg(c,d,a,b,words[i+ 3],14,-187363961); b=gg(b,c,d,a,words[i+ 8],20, 1163531501);
+                a=gg(a,b,c,d,words[i+13], 5,-1444681467); d=gg(d,a,b,c,words[i+ 2], 9,-51403784);
+                c=gg(c,d,a,b,words[i+ 7],14, 1735328473); b=gg(b,c,d,a,words[i+12],20,-1926607734);
+                a=hh(a,b,c,d,words[i+ 5], 4,-378558); d=hh(d,a,b,c,words[i+ 8],11,-2022574463);
+                c=hh(c,d,a,b,words[i+11],16, 1839030562); b=hh(b,c,d,a,words[i+14],23,-35309556);
+                a=hh(a,b,c,d,words[i+ 1], 4,-1530992060); d=hh(d,a,b,c,words[i+ 4],11, 1272893353);
+                c=hh(c,d,a,b,words[i+ 7],16,-155497632); b=hh(b,c,d,a,words[i+10],23,-1094730640);
+                a=hh(a,b,c,d,words[i+13], 4, 681279174); d=hh(d,a,b,c,words[i+ 0],11,-358537222);
+                c=hh(c,d,a,b,words[i+ 3],16,-722521979); b=hh(b,c,d,a,words[i+ 6],23, 76029189);
+                a=hh(a,b,c,d,words[i+ 9], 4,-640364487); d=hh(d,a,b,c,words[i+12],11,-421815835);
+                c=hh(c,d,a,b,words[i+15],16, 530742520); b=hh(b,c,d,a,words[i+ 2],23,-995338651);
+                a=ii(a,b,c,d,words[i+ 0], 6,-198630844); d=ii(d,a,b,c,words[i+ 7],10, 1126891415);
+                c=ii(c,d,a,b,words[i+14],15,-1416354905); b=ii(b,c,d,a,words[i+ 5],21,-57434055);
+                a=ii(a,b,c,d,words[i+12], 6, 1700485571); d=ii(d,a,b,c,words[i+ 3],10,-1894986606);
+                c=ii(c,d,a,b,words[i+10],15,-1051523); b=ii(b,c,d,a,words[i+ 1],21,-2054922799);
+                a=ii(a,b,c,d,words[i+ 8], 6, 1873313359); d=ii(d,a,b,c,words[i+15],10,-30611744);
+                c=ii(c,d,a,b,words[i+ 6],15,-1560198380); b=ii(b,c,d,a,words[i+13],21, 1309151649);
+                a=ii(a,b,c,d,words[i+ 4], 6,-145523070); d=ii(d,a,b,c,words[i+11],10,-1120210379);
+                c=ii(c,d,a,b,words[i+ 2],15, 718787259); b=ii(b,c,d,a,words[i+ 9],21,-343485551);
+                a=add32(a,oa); b=add32(b,ob); c=add32(c,oc); d=add32(d,od);
+            }
+            const toHex = w => {
+                let s=''; for(let i=0;i<4;i++){ const t=((w>>(i*8))&0xFF).toString(16); s+=(t.length<2?'0':'')+t; } return s;
+            };
+            return toHex(a)+toHex(b)+toHex(c)+toHex(d);
+        }
+
+        async function startOta() {
+            const f = document.getElementById('ota-file').files[0];
+            if (!f) return;
+            const btn  = document.getElementById('ota-btn');
+            const st   = document.getElementById('ota-status');
+            const prog = document.getElementById('ota-progress');
+            btn.disabled = true;
+            prog.style.display = 'block';
+            prog.value = 0;
+
+            st.textContent = 'Berechne MD5…';
+            let md5;
+            try {
+                md5 = await md5HexOfBlob(f);
+            } catch (e) {
+                st.textContent = 'MD5-Berechnung fehlgeschlagen: ' + e;
+                btn.disabled = false;
+                prog.style.display = 'none';
+                return;
+            }
+            st.textContent = 'MD5 ' + md5 + ' — Upload läuft…';
+
+            const fd = new FormData();
+            fd.append('firmware', f, f.name);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/ota');
+            xhr.setRequestHeader('X-MD5', md5);
+            xhr.upload.onprogress = e => {
+                if (e.lengthComputable) prog.value = (e.loaded / e.total) * 100;
+            };
+            xhr.onload = () => {
+                if (xhr.status === 200) {
+                    st.textContent = 'OTA erfolgreich — Gateway startet neu in ~2 s.';
+                    prog.value = 100;
+                    setTimeout(() => { window.location.reload(); }, 8000);
+                } else {
+                    let msg = 'OTA fehlgeschlagen (HTTP ' + xhr.status + ')';
+                    try { msg += ': ' + (JSON.parse(xhr.responseText).error || ''); } catch (e) {}
+                    st.textContent = msg;
+                    btn.disabled = false;
+                }
+            };
+            xhr.onerror = () => {
+                st.textContent = 'OTA: Netzwerkfehler beim Upload.';
+                btn.disabled = false;
+            };
+            xhr.send(fd);
+        }
+
+        function toggleProgMode() {
+            let btn = document.getElementById('prog-toggle-btn');
+            btn.disabled = true;
+            fetch('/api/progmode', { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    applyProgMode(d.prog_mode);
+                    btn.disabled = false;
+                })
+                .catch(e => {
+                    alert('Fehler beim Umschalten des Programmier-Modus!');
+                    btn.disabled = false;
+                });
+        }
+
+        function applyProgMode(active) {
+            let badge = document.getElementById('prog_mode');
+            if (!badge) return;
+            if (active) {
+                badge.innerText = 'AKTIV';
+                badge.className = 'status-badge status-online';
+            } else {
+                badge.innerText = 'AUS';
+                badge.className = 'status-badge status-offline';
+            }
+        }
+
         function startApMode() {
             if(!confirm('WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?')) return;
             fetch('/api/wifi/ap_mode', { method: 'POST' })
@@ -317,12 +628,30 @@ const char index_html[] PROGMEM = R"rawliteral(
                     
                     document.getElementById('knx_configured').innerText = data.knx_configured ? 'Ja' : 'Nein';
                     document.getElementById('knx_pa').innerText = data.knx_pa;
+                    if (data.prog_mode !== undefined) applyProgMode(data.prog_mode);
                     document.getElementById('knx_led_pin').innerText = data.knx_led_pin;
                     document.getElementById('knx_btn_pin').innerText = data.knx_btn_pin;
                     document.getElementById('knx_max_tunnels').innerText = data.knx_max_tunnels;
                     
                     document.getElementById('active_clients').innerText = data.active_clients;
                     
+                    if (data.ncn) {
+                        document.getElementById('ncn_type').innerText = data.ncn.type;
+                        var stateBadge = document.getElementById('ncn_state');
+                        stateBadge.innerText = data.ncn.state;
+                        stateBadge.className = 'status-badge ' + (data.ncn.connected ? 'status-online' : 'status-offline');
+                        document.getElementById('ncn_mode').innerText = data.ncn.mode;
+                        document.getElementById('ncn_baud').innerText = data.ncn.baud > 0 ? (data.ncn.baud + ' Bd') : '—';
+                        ['v20v','vdd2','vbus','vfilt','xtal'].forEach(function(r) {
+                            var el = document.getElementById('ncn_' + r);
+                            if (!el) return;
+                            el.classList.toggle('ok',  !!data.ncn[r]);
+                            el.classList.toggle('bad',  !data.ncn[r]);
+                        });
+                        var tw = document.getElementById('ncn_tw');
+                        if (tw) tw.style.display = data.ncn.thermal_warning ? 'inline-block' : 'none';
+                    }
+
                     if (data.rx_frames !== undefined) {
                         document.getElementById('rx_frames').innerText = data.rx_frames;
                         document.getElementById('tx_frames').innerText = data.tx_frames;
@@ -358,6 +687,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                         document.getElementById('footer_version').innerText = data.build.version;
                         document.getElementById('footer_build').innerText = data.build.number;
                         document.getElementById('footer_git').innerText = data.build.git;
+                        if (data.build.partition !== undefined) {
+                            document.getElementById('boot_part').innerText  = data.build.partition;
+                            document.getElementById('boot_state').innerText = data.build.ota_state || '-';
+                        }
                     }
                     
                     // Hardware info

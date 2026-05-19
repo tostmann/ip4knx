@@ -10,7 +10,14 @@ using namespace std;
 
 /* ToDos
 Announce the line status of sec side 03_05_01 4.4.3
-implement PID_COUPLER_SERVICES_CONTROL 03_05_01 4.4.7
+
+PID_COUPLER_SERVICES_CONTROL (PID 57, 03_05_01 4.4.7) is intentionally NOT
+implemented here: it is a Coupler Model 2.0 property and not part of the
+091A (Model 1.x) profile. The equivalent semantic in 091A is split across
+PID_SUB_LCCONFIG / PID_MAIN_LCCONFIG (LCCONFIG bit-flags PHYS_FRAME_ROUT,
+PHYS_REPEAT, BROADCAST_REPEAT, GROUP_IACK_ROUT, PHYS_IACK_*) which are
+honored by the routing path below. ETS for the 091A profile writes those,
+not PID_COUPLER_SERVICES_CONTROL.
 */
 
 Bau091A::Bau091A(Platform& platform)
@@ -27,7 +34,9 @@ Bau091A::Bau091A(Platform& platform)
 {
     // Before accessing anything of the router object they have to be initialized according to the used medium
     // Coupler model 1.x
-    _routerObj.initialize1x(DptMedium::KNX_IP, 220);
+    // PID_MAX_APDU_LENGTH_ROUTER: upstream OpenKNX/knx b50301e (2026-02-24) raised
+    // 220 -> 254. Allows ETS / KNXnet/IP partners to negotiate longer APDU frames.
+    _routerObj.initialize1x(DptMedium::KNX_IP, 254);
 
     // Mask 091A uses older coupler model 1.x which only uses one router object
     _netLayer.rtObj(_routerObj);

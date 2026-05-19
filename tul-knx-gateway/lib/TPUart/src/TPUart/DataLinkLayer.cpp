@@ -30,6 +30,7 @@ namespace TPUart
 
             if (tryInitialize(baudrate))
             {
+                _baudrate = baudrate;
                 setBCUState(BCU_CONNECTED, baudrate);
                 _uReset = true;
                 _bcuState = BCU_CONNECTED;
@@ -79,7 +80,10 @@ namespace TPUart
         _rxFrameBufferEntries = 0;
         _repetitionFilter.clear();
         _interface->flush();
-        _bcuState = BCU_CONNECTED;
+        // Use setBCUState so _lastReceivedTime is refreshed; otherwise the
+        // 30s disconnect-watchdog will fire again immediately even though
+        // we just re-armed the link.
+        setBCUState(BCU_CONNECTED);
 
         _interface->write(U_RESET_REQ);
         _modeExtendedCRC = false;
@@ -274,6 +278,15 @@ namespace TPUart
         if (_bcuState == BCU_UNINITIALIZED) return;
 
         if (_bcuState == BCU_DISCONNECTED && _interface->available()) setBCUState(BCU_CONNECTED);
+        // Active recovery: even with empty buffer, periodically poke the NCN
+        // with a state request — the response will refill the buffer and the
+        // line above will flip us back to CONNECTED.
+        if (_bcuState == BCU_DISCONNECTED && (millis() - _requestStateTimer) > 1000)
+        {
+            _interface->write(U_STATE_REQ);
+            if (_bcuType == BCU_NCN5120) _interface->write(U_SYSTEM_STATE_REQ);
+            _requestStateTimer = millis();
+        }
 
         exitBusyModeTimer();
         processRequestState();
@@ -311,9 +324,13 @@ namespace TPUart
         const unsigned long last = _receiver._lastReceivedTime;
         asm volatile("" ::: "memory"); // ensures that the last value is not updated again by the parallel task or interrupt after the query of millis()
         const unsigned long current = millis();
-        if (_bcuState == BCU_CONNECTED && current - last > 5000UL)
+        // 30s threshold (was 5s): the receiver only refreshes _lastReceivedTime
+        // inside processReceviedByte() under non-blocking rxLock, which can
+        // be missed for many seconds when the main task holds rxLock during
+        // frame buffer drains. 5s is too tight; 30s avoids spurious flips
+        // while still detecting a genuinely dead NCN.
+        if (_bcuState == BCU_CONNECTED && current - last > 30000UL)
         {
-            // printMessage("Time: %li - %li = %li", current, _receiver._lastReceivedTime, current - last);
             setBCUState(BCU_DISCONNECTED);
         }
 

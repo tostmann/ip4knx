@@ -39,6 +39,11 @@ void DataLinkLayer::dataRequestToTunnel(CemiFrame& frame)
     println("default dataRequestToTunnel");
 }
 
+void DataLinkLayer::dataRequestToChannelId(CemiFrame& frame, uint8_t channelId)
+{
+    println("default dataRequestToChannelId");
+}
+
 void DataLinkLayer::dataConfirmationToTunnel(CemiFrame& frame)
 {
     println("default dataConfirmationToTunnel");
@@ -67,21 +72,28 @@ void DataLinkLayer::dataRequestFromTunnel(CemiFrame& frame)
 
 #ifdef KNX_TUNNELING
     // TunnelOpti
-    // Optimize performance when receiving unicast data over tunnel wich is not meant to be used on the physical TP line
-    // dont send to knx when 
-    // frame is individual adressed AND
+    // Optimize performance when receiving unicast data over tunnel wich is not meant to be used on the physical KNX-TP line
+    // dont send to KNX-TP when
+    // frame is individual adressed  AND
     // destionation == PA of Tunnel-Server  OR
-    // destination == PA of a Tunnel OR (TODO)
-    // destination is not the TP/secondary line/segment but IP/primary (TODO)
+    // destination is a routed PA (= not the TP/secondary line/segment but IP/primary) OR (configurable KNX_TUNNELING_STRICT_TOPOLOGY)
+    // destination == PA of a Tunnel (configurable KNX_TUNNELING_NO_TUNNEL_PA_ON_TP)
+
+    // Upstream OpenKNX/knx 83afcad (2025-10-27): the two PA-class suppressions
+    // are not KNX-standard compliant — gated them behind opt-in defines.
 
     if(frame.addressType() == AddressType::IndividualAddress)
     {
         if(frame.destinationAddress() == _deviceObject.individualAddress())
             return;
+#ifdef KNX_TUNNELING_STRICT_TOPOLOGY
         if(isRoutedPA(frame.destinationAddress()))
             return;
+#endif
+#ifdef KNX_TUNNELING_NO_TUNNEL_PA_ON_TP
         if(isTunnelingPA(frame.destinationAddress()))
             return;
+#endif
     }
 
 #endif
@@ -230,16 +242,17 @@ bool DataLinkLayer::sendTelegram(NPDU & npdu, AckType ack, uint16_t destinationA
 
 #ifdef KNX_TUNNELING
     // TunnelOpti
-    // Optimize performance when sending unicast data over tunnel wich is not meant to be used on the physical TP line
-    // dont send to knx when 
-    // a) we are the secondary interface (e.g. TP) AND
-    // b) destination == PA of a Tunnel (TODO)
-
+    // Optimize performance when sending unicast data over tunnel wich is not meant to be used on the physical KNX-TP line
+    // dont send to KNX-TP when
+    // this interface is the secondary interface (e.g. KNX-TP) AND
+    // destination == PA of a Tunnel (configurable KNX_TUNNELING_NO_TUNNEL_PA_ON_TP)
+#ifdef KNX_TUNNELING_NO_TUNNEL_PA_ON_TP
     if(_networkLayerEntity.getEntityIndex() == 1 && addrType == AddressType::IndividualAddress)    // don't send to tp if we are the secondary (TP) interface AND the destination is a tunnel-PA
     {
         if(isTunnelingPA(destinationAddr))
             sendTheFrame = false;
     }
+#endif
 #endif
 
     // The data link layer might be an open media link layer

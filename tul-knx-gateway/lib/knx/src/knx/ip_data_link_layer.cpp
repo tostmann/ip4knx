@@ -55,6 +55,35 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
 }
 
 #ifdef KNX_TUNNELING
+// Route a frame back to the exact tunnel that originated it (by channelId).
+// Used for CEMI configuration responses (M_PropRead_con / M_PropWrite_con /
+// M_Reset_ind) so they no longer leak to other tunnels. Cherry-pick of
+// OpenKNX/knx 1bd8201 (thewhobox, 2026-02-20), adapted to our pre-refactor
+// layout (no separate IpTunnelServer class yet).
+void IpDataLinkLayer::dataRequestToChannelId(CemiFrame& frame, uint8_t channelId)
+{
+    KnxIpTunnelConnection* tun = nullptr;
+    for (int i = 0; i < KNX_TUNNELING; i++)
+    {
+        if (tunnels[i].ChannelId == channelId)
+        {
+            tun = &tunnels[i];
+            break;
+        }
+    }
+
+    if (tun == nullptr)
+    {
+#ifdef KNX_LOG_TUNNELING
+        print("Found no Tunnel for ChannelId: ");
+        println(channelId, 16);
+#endif
+        return;
+    }
+
+    sendFrameToTunnel(tun, frame);
+}
+
 void IpDataLinkLayer::dataRequestToTunnel(CemiFrame& frame)
 {
     if(frame.addressType() == AddressType::GroupAddress)
@@ -968,7 +997,7 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
     _platform.sendBytesUniCast(tun->IpAddress, tun->PortData, tunnAck.data(), tunnAck.totalLength());
 
     tun->lastHeartbeat = millis();
-    _cemiServer->frameReceived(confReq.frame());
+    _cemiServer->frameReceived(confReq.frame(), tun->ChannelId);
 }
 
 void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t length)
@@ -1032,10 +1061,33 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
 
     tun->SequenceCounter_R = tunnReq.connectionHeader().sequenceCounter();
 
-    if(tunnReq.frame().sourceAddress() == 0)
+    // Tunnel source validation per KNXnet/IP Tunnelling §4.4: source MUST be
+    // either 0x0000 (= "fill in the assigned IA") or the IA this channel was
+    // given. Anything else is either a spoofing attempt or a misbehaving
+    // client. Rewriting matches the behaviour of MDT/Weinzierl/Gira gateways
+    // — keeps ETS commissioning working when a tool sends a non-zero source,
+    // and stops a client from impersonating another tunnel's address.
+    uint16_t src = tunnReq.frame().sourceAddress();
+    if (src == 0)
+    {
         tunnReq.frame().sourceAddress(tun->IndividualAddress);
+    }
+    else if (src != tun->IndividualAddress)
+    {
+#ifdef KNX_LOG_TUNNELING
+        print("Tunnel 0x");
+        print(tun->ChannelId, 16);
+        print(": source ");
+        print((src >> 12) & 0xF); print("."); print((src >> 8) & 0xF); print("."); print(src & 0xFF);
+        print(" rewritten to assigned ");
+        print((tun->IndividualAddress >> 12) & 0xF); print(".");
+        print((tun->IndividualAddress >> 8) & 0xF); print(".");
+        println(tun->IndividualAddress & 0xFF);
+#endif
+        tunnReq.frame().sourceAddress(tun->IndividualAddress);
+    }
 
-    _cemiServer->frameReceived(tunnReq.frame());
+    _cemiServer->frameReceived(tunnReq.frame(), tun->ChannelId);
 }
 #endif
 
