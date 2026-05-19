@@ -51,6 +51,7 @@ namespace TPUart
         volatile size_t _rxFrameBufferEntries = 0;
         volatile BcuType _bcuType;
         volatile BcuState _bcuState = BCU_UNINITIALIZED;
+        volatile uint _baudrate = 0;
 
         // Overflow
         volatile bool _rxSearchBufferOverflow = false;
@@ -143,6 +144,7 @@ namespace TPUart
         bool startMonitoring();
         BcuState getBcuState();
         const char *getBcuStateInfo();
+        uint getBaudrate() const { return _baudrate; }
         bool isMonitoring() const;
         bool isConnected() const;
 

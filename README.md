@@ -8,10 +8,15 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 
 *   **Prio 1: Home Assistant Support:** Auto-discovery via KNXnet/IP Routing and complete multi-client support.
 *   **High Performance Concurrency:** Supports up to **10 concurrent KNXnet/IP Tunneling connections** (e.g., simultaneous use of ETS, Home Assistant, Node-RED, etc.).
+*   **Tunnel Source-Address Validation:** Each tunnel gets an assigned individual address; frames with a foreign source IA are rewritten before broadcast (KNXnet/IP Core §4.4, matching MDT/Weinzierl/Gira gateway behavior). Stops one tunnel client from impersonating another.
 *   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP <MAC>`). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard.
 *   **Web-Based Wi-Fi Setup:** Click the status badge in the web dashboard to open the Wi-Fi configuration modal. Perform a live scan of nearby networks, select your SSID, and enter the password. The gateway will save the credentials and seamlessly reboot into client mode.
 *   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot.
-*   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
+*   **OTA Firmware Update:** Two paths, both with MD5 verification: (a) **online update** from a signed manifest at [install.busware.de/ip4knx/](https://install.busware.de/ip4knx/) — one click in the dashboard pulls the latest firmware over HTTPS; (b) **manual upload** of any `firmware_*.bin` through the same dashboard.
+*   **Dual-OTA Anti-Brick:** Two app partitions plus bootloader app-rollback. A freshly OTA'd partition stays `PENDING_VERIFY` for the first 30 s; if the new firmware crashes before then, the bootloader falls back to the previous partition on next boot.
+*   **Programming Mode Toggle:** One-click ETS programming-mode activation from the dashboard / `/api/progmode` (no more reaching for the physical button during commissioning).
+*   **NCN5130 Boot Self-Test:** Verifies the SPI/UART link to the transceiver, all power rails (V20V/VDD2/VBUS/VFILT), XTAL, and thermal status on every boot. Visible on the dashboard and in `/api/status`.
+*   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, NCN transceiver state, OTA partition + state, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
 *   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`.
 *   **Hardware Watchdog:** Active Task Watchdog Timer (TWDT) and Wi-Fi connection monitoring for ultimate stability.
 *   **Build Versioning:** Git hash and build number displayed in serial output and `/api/status` JSON.
@@ -31,22 +36,25 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Flash:** 4MB
 *   **Target Env:** `tul32_esp32c6`
 *   **Pins:** LED=8, Button=9, RX=5, TX=4 (UART_NUM_1)
-*   **Note:** Requires custom 4MB partition table and NVS initialization (see CLAUDE.md)
+*   **Partition layout:** `partitions_4mb_ota.csv` (otadata + app0 0x10000/0x1F0000 + app1 0x200000/0x1F0000 + coredump). Same layout is used for both ESP32-C3 and ESP32-C6.
 
 ## 🚀 Installation
 
-### Option A: Flash Pre-compiled Factory Binaries (Easiest)
-You can directly flash the combined factory images located in the `binaries/` folder using ESP Web Tools or `esptool.py`. They contain the bootloader, partition table, and firmware.
+### Option A: Web Flasher (Easiest, no toolchain needed)
+The hosted web flasher detects your hardware and flashes the factory image directly from the browser:
 
-1. Locate the correct binary for your hardware in `binaries/`:
-   * `factory_tul_esp32c3.bin`
-   * `factory_tul32_esp32c6.bin`
-2. Flash it to offset `0x0000`:
-   ```bash
-   esptool.py --chip <esp32c3|esp32c6> write_flash 0x0000 binaries/factory_target.bin
-   ```
+→ **https://install.busware.de/ip4knx/**
 
-### Option B: Build from Source (PlatformIO)
+Works in Chrome, Edge, and Opera (browsers with Web Serial API). Plug in the stick, hit *Install*, the page chips through factory image + Wi-Fi provisioning (Improv) in one flow. After a subsequent firmware bump, the same page can be used to update existing devices (or use the in-device OTA — see Features above).
+
+### Option B: Local `esptool.py`
+If you have a pre-built factory image (build it yourself via `scripts/build_factory.sh` — pre-built images are not checked into the repo):
+
+```bash
+esptool.py --chip <esp32c3|esp32c6> write_flash 0x0000 binaries/factory_<target>.bin
+```
+
+### Option C: Build from Source (PlatformIO)
 This project uses PlatformIO. The required `knx` and `tpuart` libraries are vendored (included locally in `lib/`) to ensure the applied hardware patches remain stable.
 
 1. Install [PlatformIO](https://platformio.org/).
@@ -69,7 +77,7 @@ The firmware is designed for a seamless "Installer Mode" experience on the const
 
 ### Alternative: Improv-WiFi Provisioning via USB
 During the first 120 seconds after powering on, you can also provision Wi-Fi credentials via USB:
-*   **Web-Serial:** Open the official Webinstaller at [install.busware.de/TUL/](https://install.busware.de/TUL/) and connect to the device.
+*   **Web-Serial:** Open the web flasher at [install.busware.de/ip4knx/](https://install.busware.de/ip4knx/) and connect to the device. The Improv handshake happens after the install step (or skip the flash and just provision an already-flashed stick).
 *   **CLI Script:** Highly useful for automated setups or debugging:
     ```bash
     pip install pyserial
@@ -114,7 +122,12 @@ python3 scripts/test_improv.py --scan
 python3 scripts/test_improv.py --info
 
 # KNX/IP diagnostic & bidirectional test
-python3 scripts/test_knx_ip_bidirectional.py --diagnose 10.10.11.199
+python3 scripts/test_knx_ip_bidirectional.py --diagnose 10.10.11.30
+
+# Tunnel source-address validation regression test
+# (opens two tunnels, sends a frame with spoofed source from one,
+# verifies the gateway rewrites it to the assigned IA before broadcasting)
+python3 scripts/test_tunnel_source.py --host 10.10.11.30
 ```
 
 ## 🤝 Credits

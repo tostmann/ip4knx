@@ -24,6 +24,7 @@ class IpDataLinkLayer : public DataLinkLayer
     DptMedium mediumType() const override;
 #ifdef KNX_TUNNELING
     void dataRequestToTunnel(CemiFrame& frame) override;
+    void dataRequestToChannelId(CemiFrame& frame, uint8_t channelId) override;
     void dataConfirmationToTunnel(CemiFrame& frame) override;
     void dataIndicationToTunnel(CemiFrame& frame) override;
     bool isTunnelAddress(uint16_t addr) override;

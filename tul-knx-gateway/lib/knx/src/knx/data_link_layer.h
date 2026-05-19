@@ -35,6 +35,7 @@ class DataLinkLayer
     void dataRequestFromTunnel(CemiFrame& frame);
 #ifdef KNX_TUNNELING
     virtual void dataRequestToTunnel(CemiFrame& frame);
+    virtual void dataRequestToChannelId(CemiFrame& frame, uint8_t channelId);
     virtual void dataConfirmationToTunnel(CemiFrame& frame);
     virtual void dataIndicationToTunnel(CemiFrame& frame);
     virtual bool isTunnelAddress(uint16_t addr);

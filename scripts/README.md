@@ -8,10 +8,12 @@ This directory contains test and diagnostic scripts for the ip4knx KNX/IP Gatewa
 |--------|---------|
 | `test_improv.py` | WiFi provisioning via ImprovSerial |
 | `test_knx_ip_bidirectional.py` | KNX/IP bidirectional communication test |
+| `test_tunnel_source.py` | KNXnet/IP tunnel source-address validation regression test |
 | `test_hass_knx.py` | Home Assistant KNX integration test |
 | `test_hass_to_knx.py` | Home Assistant → KNX Bus test |
 | `monitor_ip.py` | Serial port IP traffic monitor |
 | `build_factory.sh` | Build factory binary for ESP WebFlashTools |
+| `deploy_webflasher.sh` | Stage and rsync the install.busware.de/ip4knx/ web flasher site |
 
 ---
 
@@ -83,6 +85,25 @@ python3 test_knx_ip_bidirectional.py --busmonitor /tmp/eib
 - Supports Home Assistant, knxd (UNIX socket or IP), and multicast monitoring
 - Requires ip4knx with WiFi configured
 - For full routing support: ip4knx needs ETS programming (`knx_configured: true`)
+
+---
+
+## test_tunnel_source.py
+
+Regression test for the KNXnet/IP tunnel source-address validation feature (KNXnet/IP Core §4.4). Opens two parallel tunnel connections, has client A send a TUNNELING_REQUEST with a cEMI source address spoofed to B's assigned IA, and verifies the gateway rewrites the source to A's assigned IA before broadcasting.
+
+```bash
+# Default: writes 0/0/1 = 0x01, prints PASS/FAIL verdict
+python3 test_tunnel_source.py --host 10.10.11.30
+
+# Choose another group address
+python3 test_tunnel_source.py --host 10.10.11.30 --group 1/2/3
+
+# Show packet trace
+python3 test_tunnel_source.py --host 10.10.11.30 --verbose
+```
+
+Pass criterion: B receives the echoed L_Data.ind with `src == IA_A` (not the spoofed `IA_B`). Stdlib-only, no dependencies.
 
 ---
 
