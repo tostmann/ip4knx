@@ -27,6 +27,13 @@
 #define TPUART_MAX_RXQUEUE_TIME_PER_LOOP 20
 #endif
 
+// Max KNX TP frame length (extended frame). RX reassembly bounds the per-frame
+// stack buffer against this so a corrupt/desynced length prefix cannot size a
+// huge VLA (stack smash). 263 = 9-byte L_Data_Extended header + 254-byte APDU.
+#ifndef TPUART_MAX_KNX_FRAME
+#define TPUART_MAX_KNX_FRAME 263
+#endif
+
 namespace TPUart
 {
     class DataLinkLayer

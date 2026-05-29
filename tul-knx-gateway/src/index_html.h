@@ -316,40 +316,59 @@ const char index_html[] PROGMEM = R"rawliteral(
         function openWifiModal() { document.getElementById('wifiModal').style.display = 'block'; }
         function closeWifiModal() { document.getElementById('wifiModal').style.display = 'none'; }
         
+        function renderNets(data) {
+            let uniqueNets = {};
+            data.forEach(net => {
+                if (!uniqueNets[net.ssid] || uniqueNets[net.ssid].rssi < net.rssi) {
+                    uniqueNets[net.ssid] = net;
+                }
+            });
+            let sortedNets = Object.values(uniqueNets).sort((a, b) => b.rssi - a.rssi);
+            let sel = document.getElementById('ssid-select');
+            sel.innerHTML = '<option value="">Wählen Sie ein Netzwerk...</option>';
+            sortedNets.forEach(net => {
+                if(net.ssid) {
+                    let opt = document.createElement('option');
+                    opt.value = net.ssid;
+                    opt.text = net.ssid + ' (' + net.rssi + ' dBm)';
+                    sel.appendChild(opt);
+                }
+            });
+            sel.style.display = 'block';
+        }
+
+        // Async scan (server returns immediately; we poll for results).
+        // ?start=1 kicks a fresh scan; subsequent polls return {scanning:true}
+        // until the array of networks is ready. Bounded so the button always
+        // re-enables even if the scan never completes.
         function scanWifi() {
             let btn = document.getElementById('scan-btn');
             btn.innerText = 'Suche läuft...';
             btn.disabled = true;
-            fetch('/api/wifi/scan')
-                .then(r => r.json())
-                .then(data => {
-                    let uniqueNets = {};
-                    data.forEach(net => {
-                        if (!uniqueNets[net.ssid] || uniqueNets[net.ssid].rssi < net.rssi) {
-                            uniqueNets[net.ssid] = net;
+            function finish(msg) {
+                if (msg) alert(msg);
+                btn.innerText = 'WLAN Netzwerke suchen';
+                btn.disabled = false;
+            }
+            let tries = 0;
+            function poll() {
+                fetch('/api/wifi/scan')
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data && data.scanning) {
+                            if (++tries > 20) { finish('Scan-Timeout!'); return; }
+                            setTimeout(poll, 700);
+                            return;
                         }
-                    });
-                    let sortedNets = Object.values(uniqueNets).sort((a, b) => b.rssi - a.rssi);
-
-                    let sel = document.getElementById('ssid-select');
-                    sel.innerHTML = '<option value="">Wählen Sie ein Netzwerk...</option>';
-                    sortedNets.forEach(net => {
-                        if(net.ssid) {
-                            let opt = document.createElement('option');
-                            opt.value = net.ssid;
-                            opt.text = net.ssid + ' (' + net.rssi + ' dBm)';
-                            sel.appendChild(opt);
-                        }
-                    });
-                    sel.style.display = 'block';
-                    btn.innerText = 'WLAN Netzwerke suchen';
-                    btn.disabled = false;
-                })
-                .catch(e => {
-                    alert('Fehler beim Scannen!');
-                    btn.innerText = 'WLAN Netzwerke suchen';
-                    btn.disabled = false;
-                });
+                        renderNets(Array.isArray(data) ? data : []);
+                        finish();
+                    })
+                    .catch(e => finish('Fehler beim Scannen!'));
+            }
+            // Kick a fresh scan, then start polling.
+            fetch('/api/wifi/scan?start=1')
+                .then(() => setTimeout(poll, 700))
+                .catch(e => finish('Fehler beim Scannen!'));
         }
         
         function connectWifi() {

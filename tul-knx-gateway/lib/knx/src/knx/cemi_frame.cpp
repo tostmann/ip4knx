@@ -371,7 +371,15 @@ APDU& CemiFrame::apdu()
 bool CemiFrame::valid() const
 {
     uint8_t addInfoLen = _data[1];
-    uint8_t apduLen = _data[_data[1] + NPDU_LPDU_DIFF];
+
+    // Guard the indexed apduLen read against a crafted additional-info length
+    // that would point past the frame (remote OOB read on the IP ingress path).
+    // _length == 0 keeps its legacy "length not set" meaning for frames built
+    // via the apduLength ctor.
+    if (_length != 0 && (uint16_t)addInfoLen + NPDU_LPDU_DIFF + 1 > _length)
+        return false;
+
+    uint8_t apduLen = _data[addInfoLen + NPDU_LPDU_DIFF];
 
     if (_length != 0 && _length != (addInfoLen + apduLen + NPDU_LPDU_DIFF + 2))
     {

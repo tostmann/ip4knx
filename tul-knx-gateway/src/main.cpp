@@ -38,6 +38,7 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password) {
 
 bool connectWifi(const char *ssid, const char *password) {
     Serial.printf("Connecting to WiFi: %s\n", ssid);
+    WiFi.setSleep(WIFI_PS_NONE);   // C6: PS_NONE before every begin()
     WiFi.begin(ssid, password);
     
     int retries = 0;
@@ -67,6 +68,12 @@ bool buttonState = HIGH;
 DNSServer dnsServer;
 const byte DNS_PORT = 53;
 
+// H2: KNX progMode is mutated only from loop() (the main task). Web handlers run
+// in the async_tcp task; toggling the stack from there races knx.loop(). The
+// /api/progmode handler sets these and loop() applies the change.
+volatile bool progModeReqPending = false;
+volatile bool progModeReqValue   = false;
+
 // ESP-IDF private brownout-disable (no public Arduino header for ESP32-C6)
 extern "C" void esp_brownout_disable(void);
 
@@ -89,16 +96,27 @@ static const char* UPDATE_MANIFEST_URL = "https://install.busware.de/ip4knx/mani
 enum UpdateState { UPD_IDLE, UPD_CHECKING, UPD_AVAILABLE, UPD_INSTALLING, UPD_DONE, UPD_ERROR };
 
 struct UpdateInfo {
-    UpdateState state = UPD_IDLE;
-    String latestVersion;
-    String url;
-    String md5;
-    String error;
-    size_t progress = 0;
-    size_t total = 0;
+    // state/progress/total are read by /api/update/status (async_tcp task) while
+    // updateInstallTask (separate task) writes them -> volatile so the reader
+    // never caches a stale value. 32-bit aligned scalars are atomic on RISC-V.
+    volatile UpdateState state = UPD_IDLE;
+    String latestVersion;             // written only in async_tcp task -> safe
+    String url;                       // "
+    String md5;                       // "
+    // error is written by updateInstallTask and read by the status handler in a
+    // different task. A String there is a use-after-free (realloc frees the
+    // reader's buffer); a fixed char[] degrades the worst case to a harmless
+    // torn read that self-corrects on the next poll. Write via setUpdateError().
+    char error[96] = {0};
+    volatile size_t progress = 0;
+    volatile size_t total = 0;
     uint32_t lastCheckMillis = 0;
 };
 static UpdateInfo updateInfo;
+
+static void setUpdateError(const String& s) {
+    strlcpy(updateInfo.error, s.c_str(), sizeof(updateInfo.error));
+}
 
 static const char* updateStateName(UpdateState s) {
     switch (s) {
@@ -150,22 +168,49 @@ static String jsonGetOtaField(const String& body, const String& field) {
     return jsonGetStr(body.substring(objStart, objEnd + 1), field);
 }
 
+// Escape a string for safe inclusion as a JSON string value. SSIDs in range and
+// KNX-bus-derived strings are attacker-influenced; an unescaped " or \ corrupts
+// the JSON (provisioning DoS) or injects keys. (M1)
+static String jsonEscape(const String& in) {
+    String out;
+    out.reserve(in.length() + 8);
+    for (size_t i = 0; i < in.length(); i++) {
+        char c = in[i];
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+                if ((uint8_t)c < 0x20) {
+                    char buf[7];
+                    snprintf(buf, sizeof(buf), "\\u%04x", (uint8_t)c);
+                    out += buf;
+                } else {
+                    out += c;
+                }
+        }
+    }
+    return out;
+}
+
 static bool doUpdateCheck() {
     updateInfo.state = UPD_CHECKING;
-    updateInfo.error = "";
+    setUpdateError("");
     updateInfo.lastCheckMillis = millis();
 
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient https;
     if (!https.begin(client, UPDATE_MANIFEST_URL)) {
-        updateInfo.error = "HTTPS begin failed";
+        setUpdateError("HTTPS begin failed");
         updateInfo.state = UPD_ERROR;
         return false;
     }
     int code = https.GET();
     if (code != HTTP_CODE_OK) {
-        updateInfo.error = "HTTP " + String(code);
+        setUpdateError("HTTP " + String(code));
         updateInfo.state = UPD_ERROR;
         https.end();
         return false;
@@ -175,7 +220,7 @@ static bool doUpdateCheck() {
 
     String latest = jsonGetStr(body, "version");
     if (latest.length() == 0) {
-        updateInfo.error = "no version in manifest";
+        setUpdateError("no version in manifest");
         updateInfo.state = UPD_ERROR;
         return false;
     }
@@ -184,7 +229,7 @@ static bool doUpdateCheck() {
     String path = jsonGetOtaField(body, "path");
     String md5  = jsonGetOtaField(body, "md5");
     if (path.length() == 0 || md5.length() != 32) {
-        updateInfo.error = "no ota entry for " UPDATE_CHIP_KEY;
+        setUpdateError("no ota entry for " UPDATE_CHIP_KEY);
         updateInfo.state = UPD_ERROR;
         return false;
     }
@@ -205,7 +250,7 @@ static bool doUpdateCheck() {
 
 static void updateInstallTask(void* arg) {
     updateInfo.state = UPD_INSTALLING;
-    updateInfo.error = "";
+    setUpdateError("");
     updateInfo.progress = 0;
     updateInfo.total = 0;
 
@@ -213,14 +258,14 @@ static void updateInstallTask(void* arg) {
     client.setInsecure();
     HTTPClient https;
     if (!https.begin(client, updateInfo.url)) {
-        updateInfo.error = "HTTPS begin failed";
+        setUpdateError("HTTPS begin failed");
         updateInfo.state = UPD_ERROR;
         vTaskDelete(NULL);
         return;
     }
     int code = https.GET();
     if (code != HTTP_CODE_OK) {
-        updateInfo.error = "HTTP " + String(code);
+        setUpdateError("HTTP " + String(code));
         updateInfo.state = UPD_ERROR;
         https.end();
         vTaskDelete(NULL);
@@ -231,14 +276,14 @@ static void updateInstallTask(void* arg) {
 
     WiFiClient* stream = https.getStreamPtr();
     if (!Update.begin(len > 0 ? (size_t)len : UPDATE_SIZE_UNKNOWN)) {
-        updateInfo.error = String("Update.begin: ") + Update.errorString();
+        setUpdateError(String("Update.begin: ") + Update.errorString());
         updateInfo.state = UPD_ERROR;
         https.end();
         vTaskDelete(NULL);
         return;
     }
     if (!Update.setMD5(updateInfo.md5.c_str())) {
-        updateInfo.error = "setMD5 rejected (bad format)";
+        setUpdateError("setMD5 rejected (bad format)");
         updateInfo.state = UPD_ERROR;
         Update.abort();
         https.end();
@@ -262,7 +307,7 @@ static void updateInstallTask(void* arg) {
     // us print MD5 telemetry on failure.
     uint8_t* buf = (uint8_t*)malloc(2048);
     if (!buf) {
-        updateInfo.error = "malloc(2048) failed";
+        setUpdateError("malloc(2048) failed");
         updateInfo.state = UPD_ERROR;
         Update.abort();
         https.end();
@@ -276,7 +321,7 @@ static void updateInstallTask(void* arg) {
         int got = stream->readBytes((char*)buf, toRead);
         if (got <= 0) {
             if (++timeout_failures >= 300) {
-                updateInfo.error = "stream read timeout";
+                setUpdateError("stream read timeout");
                 free(buf);
                 Update.abort();
                 https.end();
@@ -290,7 +335,7 @@ static void updateInstallTask(void* arg) {
         timeout_failures = 0;
         size_t w = Update.write(buf, (size_t)got);
         if (w != (size_t)got) {
-            updateInfo.error = String("Update.write short: ") + Update.errorString();
+            setUpdateError(String("Update.write short: ") + Update.errorString());
             free(buf);
             Update.abort();
             https.end();
@@ -304,7 +349,7 @@ static void updateInstallTask(void* arg) {
     updateInfo.progress = written;
 
     if (!Update.end(true)) {
-        updateInfo.error = String("Update.end: ") + Update.errorString();
+        setUpdateError(String("Update.end: ") + Update.errorString());
         updateInfo.state = UPD_ERROR;
         https.end();
         vTaskDelete(NULL);
@@ -320,7 +365,7 @@ static void updateInstallTask(void* arg) {
 static bool kickOffUpdateInstall() {
     if (updateInfo.state == UPD_INSTALLING) return false;
     if (updateInfo.url.length() == 0 || updateInfo.md5.length() != 32) {
-        updateInfo.error = "no pending update — run /api/update/check first";
+        setUpdateError("no pending update — run /api/update/check first");
         updateInfo.state = UPD_ERROR;
         return false;
     }
@@ -329,12 +374,12 @@ static bool kickOffUpdateInstall() {
     // POST handler returns state="available" before the new task gets to set
     // it, and the frontend never starts polling.
     updateInfo.state = UPD_INSTALLING;
-    updateInfo.error = "";
+    setUpdateError("");
     updateInfo.progress = 0;
     updateInfo.total = 0;
     BaseType_t ok = xTaskCreate(updateInstallTask, "ota_install", 8192, NULL, 1, NULL);
     if (ok != pdPASS) {
-        updateInfo.error = "task spawn failed";
+        setUpdateError("task spawn failed");
         updateInfo.state = UPD_ERROR;
         return false;
     }
@@ -349,7 +394,7 @@ static String updateStatusJson() {
     j += "\"available\":" + String(updateInfo.state == UPD_AVAILABLE ? "true" : "false") + ",";
     j += "\"progress\":" + String((unsigned)updateInfo.progress) + ",";
     j += "\"total\":" + String((unsigned)updateInfo.total) + ",";
-    j += "\"error\":\"" + updateInfo.error + "\"";
+    j += "\"error\":\"" + jsonEscape(String(updateInfo.error)) + "\"";
     j += "}";
     return j;
 }
@@ -445,10 +490,15 @@ void setup() {
     Serial.flush();
     delay(50);
 
-    Serial.println("[E] WiFi.setSleep(MAX_MODEM)");
+    Serial.println("[E] WiFi.setSleep(WIFI_PS_NONE)");
     Serial.flush();
     delay(50);
-    WiFi.setSleep(WIFI_PS_MAX_MODEM);
+    // PS_NONE is mandatory on ESP32-C6 (and used on C3 too): WiFi-6 modem-sleep
+    // defaults (WIFI_PS_MIN/MAX_MODEM) break the WPA2 4-way handshake on the C6
+    // (reproducible 4WAY_HANDSHAKE_TIMEOUT / ASSOC_LEAVE reason 8) and drop KNX
+    // multicast/broadcast routing telegrams during DTIM sleep windows. Must be
+    // set before every WiFi.begin().
+    WiFi.setSleep(WIFI_PS_NONE);
 
     Serial.println("[F] read SSID/PSK");
     Serial.flush();
@@ -566,15 +616,31 @@ void setup() {
         }
     });
 
+    // H3: async scan. WiFi.scanNetworks(true) returns immediately; results are
+    // collected later via scanComplete(). A blocking WiFi.scanNetworks() here
+    // would freeze the entire async_tcp task (all HTTP + TCP callbacks) for the
+    // multi-second scan duration — an unauthenticated DoS. Protocol: GET ?start=1
+    // kicks a fresh scan; plain GET polls. Returns {"scanning":true} while in
+    // progress, else a JSON array of {ssid,rssi}. SSID is JSON-escaped (M1).
     server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *request){
-        int n = WiFi.scanNetworks();
+        int n = WiFi.scanComplete();
+        if (n == WIFI_SCAN_RUNNING) {
+            request->send(200, "application/json", "{\"scanning\":true}");
+            return;
+        }
+        if (request->hasParam("start") || n == WIFI_SCAN_FAILED) {
+            WiFi.scanDelete();
+            WiFi.scanNetworks(true /*async*/);
+            request->send(200, "application/json", "{\"scanning\":true}");
+            return;
+        }
         String json = "[";
-        // filter out duplicates if we want, or just let UI handle it.
         for (int i = 0; i < n; ++i) {
             if (i > 0) json += ",";
-            json += "{\"ssid\":\"" + WiFi.SSID(i) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+            json += "{\"ssid\":\"" + jsonEscape(WiFi.SSID(i)) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
         }
         json += "]";
+        WiFi.scanDelete();
         request->send(200, "application/json", json);
     });
 
@@ -586,6 +652,7 @@ void setup() {
             Serial.printf("Received WiFi config via Web Portal. SSID: %s\n", ssid.c_str());
             
             WiFi.persistent(true);
+            WiFi.setSleep(WIFI_PS_NONE);   // C6: PS_NONE before every begin() (see setup)
             WiFi.begin(ssid.c_str(), pass.c_str());
             
             request->send(200, "application/json", "{\"status\":\"ok\"}");
@@ -691,10 +758,13 @@ void setup() {
         if (state == "on")        newState = true;
         else if (state == "off")  newState = false;
         else                      newState = !knx.progMode();
-        knx.progMode(newState);
-        Serial.printf("ProgMode set via web: %s\n", newState ? "ON" : "OFF");
+        // H2: don't mutate the KNX stack from the async_tcp task — defer the
+        // write to loop(). The UI re-syncs to the real state via /api/status.
+        progModeReqValue = newState;
+        progModeReqPending = true;
+        Serial.printf("ProgMode requested via web: %s (applied in loop)\n", newState ? "ON" : "OFF");
         String json = "{\"prog_mode\":";
-        json += knx.progMode() ? "true" : "false";
+        json += newState ? "true" : "false";
         json += "}";
         request->send(200, "application/json", json);
     });
@@ -722,7 +792,7 @@ void setup() {
             json += "\"mac\":\"" + WiFi.softAPmacAddress() + "\",";
             json += "\"wifi_connected\":true,";
         } else {
-            json += "\"ssid\":\"" + (WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("N/A")) + "\",";
+            json += "\"ssid\":\"" + jsonEscape(WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("N/A")) + "\",";
             json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
             json += "\"mac\":\"" + WiFi.macAddress() + "\",";
             json += "\"wifi_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
@@ -905,6 +975,13 @@ bool otaValidationPending = true;
 
 void loop() {
     knx.loop();
+
+    // H2: apply web-requested progMode change here (main task only).
+    if (progModeReqPending) {
+        bool v = progModeReqValue;
+        progModeReqPending = false;
+        knx.progMode(v);
+    }
 
     // Anti-brick: arduino-esp32 v3's bootloader ships with
     // CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y, so a freshly OTA'd partition

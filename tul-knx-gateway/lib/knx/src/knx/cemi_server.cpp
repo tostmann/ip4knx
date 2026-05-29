@@ -121,22 +121,35 @@ void CemiServer::dataIndicationToTunnel(CemiFrame& frame)
 
 void CemiServer::frameReceived(CemiFrame& frame, uint8_t channelId)
 {
+    const uint16_t dlen = frame.dataLength();
     switch(frame.messageCode())
     {
         case L_data_req:
         {
+            // Drop malformed L_Data before it reaches the bus / fillTelegramTP().
+            // valid() checks cEMI length-consistency + ctrl fields and only
+            // applies to L_Data; config msg-codes reuse _data[1] as the
+            // object-type byte and are length-floored instead (below + caller).
+            if (!frame.valid())
+                break;
             handleLData(frame);
             break;
         }
 
         case M_PropRead_req:
         {
+            // handler reads objType(2)+objInst(1)+propId(1)+NoE|idx(2) after the
+            // msg-code = 7 cEMI bytes; reject anything shorter (OOB / stale read).
+            if (dlen < 7)
+                break;
             handleMPropRead(frame, channelId);
             break;
         }
 
         case M_PropWrite_req:
         {
+            if (dlen < 7)
+                break;
             handleMPropWrite(frame, channelId);
             break;
         }

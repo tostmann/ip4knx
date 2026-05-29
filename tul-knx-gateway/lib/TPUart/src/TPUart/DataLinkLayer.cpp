@@ -115,10 +115,32 @@ namespace TPUart
         while (_rxFrameBufferEntries && (TPUART_MAX_RXQUEUE_TIME_PER_LOOP == 0 || run < TPUART_MAX_RXQUEUE_TIME_PER_LOOP))
         {
             rxLock(true);
-            const uint16_t bufferSize = _rxFrameBuffer.pop() + (_rxFrameBuffer.pop() << 8);
+            // Reassemble the length prefix written by pushRxFrameBuffer() as
+            // (frameSize + 3). char is SIGNED on RISC-V (no -funsigned-char), so
+            // a low byte >= 0x80 (any frame >= ~125 bytes, e.g. an ETS memory
+            // write) would sign-extend and inflate bufferSize to ~0xFFxx. Cast
+            // each byte through uint8_t and read them in a fixed order (the two
+            // pop() calls had unspecified evaluation order before C++17).
+            const uint8_t lenLo = (uint8_t)_rxFrameBuffer.pop();
+            const uint8_t lenHi = (uint8_t)_rxFrameBuffer.pop();
+            const uint16_t bufferSize = (uint16_t)lenLo | ((uint16_t)lenHi << 8);
+
+            // A valid KNX TP frame is <= TPUART_MAX_KNX_FRAME (bufferSize <= +3).
+            // Anything outside [3, max+3] means the stream is desynced/corrupt:
+            // we can no longer trust our read position, so drain to resync
+            // instead of sizing a VLA off a bogus length (stack smash).
+            if (bufferSize < 3 || bufferSize > (TPUART_MAX_KNX_FRAME + 3))
+            {
+                _rxFrameBuffer.clear();
+                _rxFrameBufferEntries = 0;
+                asm volatile("" ::: "memory");
+                rxUnlock();
+                _statistics.incrementRxFrameBufferOverflow();
+                break;
+            }
             const uint16_t frameSize = bufferSize - 3;
 
-            char frameData[frameSize] = {};
+            char frameData[TPUART_MAX_KNX_FRAME] = {};
 
             for (size_t i = 0; i < frameSize; i++)
                 frameData[i] = _rxFrameBuffer.pop();

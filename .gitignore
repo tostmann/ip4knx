@@ -65,4 +65,11 @@ GEMINI.md
 .env.*
 *.key
 *.pem
+# Claude-Code-Harness-State (Session-IDs, PIDs, ScheduleWakeup-Locks)
+.claude/
 datasheet/
+
+# Security reviews enumerate exploitable findings on a device wired to the KNX
+# building bus — must never reach a public remote. Local working-tree only.
+SECURITY_REVIEW*.md
+security/

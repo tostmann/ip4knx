@@ -350,7 +350,10 @@ void IpDataLinkLayer::loop()
         case RoutingIndication:
         {
             KnxIpRoutingIndication routingIndication(buffer, len);
-            frameReceived(routingIndication.frame());
+            // Routing indications carry an L_Data cEMI; drop malformed frames
+            // before the network layer reads ctrl/addr fields off a bogus length.
+            if (routingIndication.frame().valid())
+                frameReceived(routingIndication.frame());
             break;
         }
         
@@ -967,6 +970,14 @@ void IpDataLinkLayer::loopHandleDescriptionRequest(uint8_t* buffer, uint16_t len
 
 void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint16_t length)
 {
+    // Reject runt frames before constructing the request: the ctor computes the
+    // cEMI length as (length - LEN_KNXIP_HEADER - LEN_CH), which underflows
+    // uint16 for short frames -> a ~64KB bogus cEMI length that downstream
+    // memcpy/fillTelegram would trust. Need the 6-byte KNXnet/IP header +
+    // 4-byte connection header + at least a 1-byte cEMI message code.
+    if (length < KNXIP_HEADER_LEN + 4 /*connection header*/ + 1)
+        return;
+
     KnxIpConfigRequest confReq(buffer, length);
     
     KnxIpTunnelConnection *tun = nullptr;
@@ -1002,6 +1013,14 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
 
 void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t length)
 {
+    // Reject runt frames before constructing the request: the ctor computes the
+    // cEMI length as (length - LEN_CH - headerLength()), which underflows uint16
+    // for short frames -> a ~64KB bogus cEMI length that downstream memcpy /
+    // fillTelegram would trust. Need the 6-byte KNXnet/IP header + 4-byte
+    // connection header + at least a 1-byte cEMI message code.
+    if (length < KNXIP_HEADER_LEN + 4 /*connection header*/ + 1)
+        return;
+
     KnxIpTunnelingRequest tunnReq(buffer, length);
 
     KnxIpTunnelConnection *tun = nullptr;
