@@ -595,7 +595,13 @@ void setup() {
     Serial.println("======================\n");
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-        request->send(200, "text/html", index_html);
+        // Stream straight from PROGMEM via AsyncProgmemResponse. The const char*
+        // overload routes to AsyncBasicResponse, which copies the whole 65 KB body
+        // into a heap String and re-substrings it per ACK; on C3/C6 the post-first-
+        // window reallocation fails on a fragmented heap and the page truncates at
+        // ~one TCP window (GitHub #3). The (uint8_t*,len) overload memcpy_P's in
+        // chunks with no large contiguous allocation.
+        request->send(200, "text/html", (const uint8_t *)index_html, sizeof(index_html) - 1);
     });
 
     // Captive Portal Handlers
