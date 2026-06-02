@@ -123,12 +123,12 @@ python3 scripts/test_improv.py --scan
 python3 scripts/test_improv.py --info
 
 # KNX/IP diagnostic & bidirectional test
-python3 scripts/test_knx_ip_bidirectional.py --diagnose 10.10.11.30
+python3 scripts/test_knx_ip_bidirectional.py --diagnose 192.168.1.50
 
 # Tunnel source-address validation regression test
 # (opens two tunnels, sends a frame with spoofed source from one,
 # verifies the gateway rewrites it to the assigned IA before broadcasting)
-python3 scripts/test_tunnel_source.py --host 10.10.11.30
+python3 scripts/test_tunnel_source.py --host 192.168.1.50
 ```
 
 ## 🤝 Credits
