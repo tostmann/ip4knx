@@ -62,6 +62,12 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
 // layout (no separate IpTunnelServer class yet).
 void IpDataLinkLayer::dataRequestToChannelId(CemiFrame& frame, uint8_t channelId)
 {
+    // ChannelId 0 marks a FREE slot (see dataRequestToTunnel guard). A request
+    // carrying channelId 0 must never resolve to a slot — otherwise the loop
+    // below would match the first unallocated tunnel and route a frame into it.
+    if (channelId == 0)
+        return;
+
     KnxIpTunnelConnection* tun = nullptr;
     for (int i = 0; i < KNX_TUNNELING; i++)
     {

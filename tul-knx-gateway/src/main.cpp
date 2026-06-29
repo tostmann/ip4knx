@@ -36,29 +36,6 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password) {
 }
 #endif
 
-bool connectWifi(const char *ssid, const char *password) {
-    Serial.printf("Connecting to WiFi: %s\n", ssid);
-    WiFi.setSleep(WIFI_PS_NONE);   // C6: PS_NONE before every begin()
-    WiFi.begin(ssid, password);
-    
-    int retries = 0;
-    while (WiFi.status() != WL_CONNECTED && retries < 20) {
-        delay(500);
-        Serial.print(".");
-        retries++;
-    }
-    
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nWiFi connected");
-        Serial.print("IP Address: ");
-        Serial.println(WiFi.localIP());
-        return true;
-    }
-    
-    Serial.println("\nWiFi connection failed");
-    return false;
-}
-
 uint32_t bootTime = 0;
 bool isApMode = false;
 bool pendingReboot = false;
@@ -67,6 +44,11 @@ uint32_t buttonPressStart = 0;
 bool buttonState = HIGH;
 DNSServer dnsServer;
 const byte DNS_PORT = 53;
+
+// M5: outcome of the boot NCN self-test, surfaced in /api/status so a FAIL is
+// visible beyond the serial console. ASCII literals only (no JSON escaping
+// needed). Written once in setup(), read in the async_tcp status handler.
+char selfTestResult[40] = "pending";
 
 // H2: KNX progMode is mutated only from loop() (the main task). Web handlers run
 // in the async_tcp task; toggling the stack from there races knx.loop(). The
@@ -195,6 +177,51 @@ static String jsonEscape(const String& in) {
     return out;
 }
 
+// --- C2 mitigation: cross-origin (CSRF) + AP-mode gate for mutating routes ---
+// A malicious web page opened in a browser on the LAN can fire cross-site form
+// POSTs at our endpoints through any NAT/firewall — the victim's browser is the
+// confused deputy. Browsers attach an Origin header to every cross-origin POST;
+// our own UI is same-origin (Origin matches Host) and non-browser clients
+// (curl, scripts) send none. Policy: no Origin → allow; Origin host equal to
+// the Host header → allow; anything else (including "null") → 403.
+static String urlHostOnly(String s) {
+    int p = s.indexOf("://");
+    if (p >= 0) s = s.substring(p + 3);
+    p = s.indexOf('/');
+    if (p >= 0) s = s.substring(0, p);
+    if (s.startsWith("[")) {            // bracketed IPv6 literal: keep [..]
+        p = s.indexOf(']');
+        if (p >= 0) s = s.substring(0, p + 1);
+    } else {                            // strip :port
+        p = s.indexOf(':');
+        if (p >= 0) s = s.substring(0, p);
+    }
+    s.toLowerCase();
+    return s;
+}
+
+static bool originAllowed(AsyncWebServerRequest *request) {
+    if (!request->hasHeader("Origin")) return true;
+    return urlHostOnly(request->header("Origin")) == urlHostOnly(request->host());
+}
+
+// Gate for state-changing endpoints. Sends the 403 itself; the caller just
+// returns. The provisioning AP is OPEN (no PSK) — anyone in RF range can join.
+// While it is active the web surface is onboarding-only: scan/connect/status
+// work, everything else is locked. allowInApMode=true exempts the onboarding
+// route itself (origin check still applies).
+static bool mutationAllowed(AsyncWebServerRequest *request, bool allowInApMode = false) {
+    if (!originAllowed(request)) {
+        request->send(403, "application/json", "{\"error\":\"cross-origin request rejected\"}");
+        return false;
+    }
+    if (isApMode && !allowInApMode) {
+        request->send(403, "application/json", "{\"error\":\"disabled in AP provisioning mode\"}");
+        return false;
+    }
+    return true;
+}
+
 static bool doUpdateCheck() {
     updateInfo.state = UPD_CHECKING;
     setUpdateError("");
@@ -245,6 +272,29 @@ static bool doUpdateCheck() {
     }
     Serial.printf("Update check: current=%s latest=%s state=%s\n",
                   FIRMWARE_VERSION, latest.c_str(), updateStateName(updateInfo.state));
+    return true;
+}
+
+// doUpdateCheck() does a blocking HTTPS GET (seconds). Running it directly from
+// the /api/update/check handler would freeze the async_tcp task — the same
+// class of bug fixed for WiFi.scanNetworks() (H3). Offload to its own task; the
+// frontend polls /api/update/status while state == "checking".
+static void updateCheckTask(void* arg) {
+    doUpdateCheck();
+    vTaskDelete(NULL);
+}
+
+static bool kickOffUpdateCheck() {
+    if (updateInfo.state == UPD_CHECKING || updateInfo.state == UPD_INSTALLING)
+        return false;
+    updateInfo.state = UPD_CHECKING;
+    setUpdateError("");
+    BaseType_t ok = xTaskCreate(updateCheckTask, "ota_check", 8192, NULL, 1, NULL);
+    if (ok != pdPASS) {
+        setUpdateError("check task spawn failed");
+        updateInfo.state = UPD_ERROR;
+        return false;
+    }
     return true;
 }
 
@@ -411,7 +461,12 @@ void setup() {
     // hat. BOD off → CPU läuft auch bei 2.3V VDD weiter, App-Logik wird
     // nicht durch transienten Spannungs-Dip neu gestartet. Erfordert dass
     // C13 (3.3V-Rail-Buffer) groß genug bemessen ist.
+    // NUR für die bus-powered TULX32 (L4): auf USB-versorgten TUL/TUL32 bleibt
+    // der BOD aktiv — dort gibt es keinen Strom-Engpass, und ein echter
+    // Spannungseinbruch soll Flash-Writes weiterhin schützen.
+#ifdef TULX32_BUSPOWERED
     esp_brownout_disable();
+#endif
 
     Serial.begin(115200);
 #if ARDUINO_USB_CDC_ON_BOOT
@@ -572,6 +627,7 @@ void setup() {
         }
         auto tpDl = ((Bau091A&)knx.bau()).getSecondaryDataLinkLayer();
         if (!tpDl) {
+            strlcpy(selfTestResult, "FAIL (no DL layer)", sizeof(selfTestResult));
             Serial.println("Result: FAIL (no DL layer)");
         } else {
             auto& tp = tpDl->getTPUart();
@@ -586,8 +642,10 @@ void setup() {
                               sys.vfilt() ? '+' : '-',
                               sys.xtal()  ? '+' : '-',
                               sys.thermalWarning() ? '!' : ' ');
+                strlcpy(selfTestResult, sys.vbus() ? "OK" : "OK (no VBUS!)", sizeof(selfTestResult));
                 Serial.println(sys.vbus() ? "Result: OK" : "Result: OK (no VBUS!)");
             } else {
+                strlcpy(selfTestResult, "FAIL (no NCN UART response)", sizeof(selfTestResult));
                 Serial.println("Result: FAIL (no NCN UART response)");
             }
         }
@@ -651,6 +709,7 @@ void setup() {
     });
 
     server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!mutationAllowed(request, true /*onboarding route*/)) return;
         if(request->hasParam("ssid", true)) {
             String ssid = request->getParam("ssid", true)->value();
             String pass = request->hasParam("password", true) ? request->getParam("password", true)->value() : "";
@@ -671,6 +730,9 @@ void setup() {
     });
 
     server.on("/api/wifi/ap_mode", HTTP_POST, [](AsyncWebServerRequest *request){
+        // Locked in AP mode too: pointless there, and in *fallback* AP an RF
+        // neighbor could otherwise wipe the stored credentials.
+        if (!mutationAllowed(request)) return;
         Serial.println("Received request to clear WiFi credentials and start AP mode.");
         WiFi.disconnect(false, true); // Erase credentials
         request->send(200, "application/json", "{\"status\":\"ok\"}");
@@ -684,6 +746,10 @@ void setup() {
     // is NOT switched, so a corrupt upload cannot brick the device.
     server.on("/api/ota", HTTP_POST,
         [](AsyncWebServerRequest *request) {
+            // Gate first: the upload handler below already refused to start
+            // Update for gated requests, so without this check the handler
+            // would answer a rejected upload with 200/"ok".
+            if (!mutationAllowed(request)) return;
             bool ok = !Update.hasError();
             String body = ok
                 ? String("{\"status\":\"ok\"}")
@@ -699,6 +765,14 @@ void setup() {
         },
         [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
             if (index == 0) {
+                // This body handler runs BEFORE the response handler above —
+                // a gated request must never reach Update.begin(), otherwise
+                // the image is already in flash when the 403 goes out. The
+                // chunks below drain harmlessly (isRunning() stays false).
+                if (!originAllowed(request) || isApMode) {
+                    Serial.println("OTA: rejected (cross-origin or AP provisioning mode)");
+                    return;
+                }
                 Serial.printf("OTA: upload start: %s\n", filename.c_str());
                 if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
                     Update.printError(Serial);
@@ -721,12 +795,23 @@ void setup() {
                     Serial.println("OTA: no X-MD5 header — proceeding without checksum");
                 }
             }
-            if (len && !Update.hasError()) {
-                if (Update.write(data, len) != len) {
+            // isRunning() guard: when begin() was never called (gated request)
+            // the remaining chunks/final must no-op silently instead of
+            // printError-spamming per chunk.
+            if (len && Update.isRunning() && !Update.hasError()) {
+                // M3: size cap. Update.begin(UPDATE_SIZE_UNKNOWN) set the limit
+                // to the OTA partition's capacity; reject an oversized upload
+                // early with a clean abort instead of letting it run until a
+                // generic short-write error near the end.
+                if ((index + len) > Update.size()) {
+                    Serial.printf("OTA: image exceeds partition (%u > %u) — abort\n",
+                                  (unsigned)(index + len), (unsigned)Update.size());
+                    Update.abort();
+                } else if (Update.write(data, len) != len) {
                     Update.printError(Serial);
                 }
             }
-            if (final) {
+            if (final && Update.isRunning()) {
                 if (!Update.end(true)) {
                     Update.printError(Serial);
                 } else {
@@ -738,10 +823,14 @@ void setup() {
 
     // Online-Update: HTTPS-pull from install.busware.de/ip4knx/manifest.json.
     server.on("/api/update/check", HTTP_GET, [](AsyncWebServerRequest *request){
-        doUpdateCheck();
+        // Async: spawn the blocking HTTPS check on its own task and return the
+        // current status immediately (state="checking"). Frontend polls
+        // /api/update/status until it flips to available/idle/error.
+        kickOffUpdateCheck();
         request->send(200, "application/json", updateStatusJson());
     });
     server.on("/api/update/install", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!mutationAllowed(request)) return;
         bool ok = kickOffUpdateInstall();
         AsyncWebServerResponse *resp = request->beginResponse(ok ? 202 : 409,
             "application/json", updateStatusJson());
@@ -754,6 +843,7 @@ void setup() {
     // ProgMode toggle: accepts ?state=on|off|toggle (default: toggle).
     // Returns the new state after the operation.
     server.on("/api/progmode", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!mutationAllowed(request)) return;
         String state = "toggle";
         if (request->hasParam("state", true)) {
             state = request->getParam("state", true)->value();
@@ -785,7 +875,7 @@ void setup() {
         uint8_t m = (secs % 3600) / 60;
         uint8_t s = secs % 60;
         char upStr[64];
-        sprintf(upStr, "%dd %02dh %02dm %02ds", d, h, m, s);
+        snprintf(upStr, sizeof(upStr), "%lud %02dh %02dm %02ds", (unsigned long)d, h, m, s);
         
         json += "\"uptime\":\"" + String(upStr) + "\",";
         json += "\"is_ap_mode\":" + String(isApMode ? "true" : "false") + ",";
@@ -843,7 +933,8 @@ void setup() {
             json += "\"vbus\":"  + String(sys.vbus()  ? "true" : "false") + ",";
             json += "\"vfilt\":" + String(sys.vfilt() ? "true" : "false") + ",";
             json += "\"xtal\":"  + String(sys.xtal()  ? "true" : "false") + ",";
-            json += "\"thermal_warning\":" + String(sys.thermalWarning() ? "true" : "false");
+            json += "\"thermal_warning\":" + String(sys.thermalWarning() ? "true" : "false") + ",";
+            json += "\"self_test\":\"" + String(selfTestResult) + "\"";
             json += "}";
         } else {
             json += "\"rx_bytes\":0,";
@@ -854,7 +945,8 @@ void setup() {
             json += "\"ncn\":{\"type\":\"NCN5120/5121/5130\",\"state\":\"NoLayer\","
                     "\"connected\":false,\"baud\":0,\"mode\":\"-\","
                     "\"v20v\":false,\"vdd2\":false,\"vbus\":false,\"vfilt\":false,"
-                    "\"xtal\":false,\"thermal_warning\":false}";
+                    "\"xtal\":false,\"thermal_warning\":false,";
+            json += "\"self_test\":\"" + String(selfTestResult) + "\"}";
         }
 
         // Build info
@@ -975,7 +1067,6 @@ void setup() {
 }
 
 uint32_t lastWifiCheck = 0;
-uint32_t lastNtpSend = 0;
 bool wasConnected = true;
 bool otaValidationPending = true;
 

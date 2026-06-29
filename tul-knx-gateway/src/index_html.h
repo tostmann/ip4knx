@@ -430,7 +430,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             checkBtn.disabled   = (d.state === 'checking' || d.state === 'installing');
             installBtn.disabled = (d.state !== 'available');
 
-            if (d.state === 'installing') {
+            if (d.state === 'installing' || d.state === 'checking') {
                 if (!updPollHandle) updPollHandle = setInterval(pollUpdStatus, 1000);
             } else if (d.state === 'done') {
                 if (updPollHandle) { clearInterval(updPollHandle); updPollHandle = null; }

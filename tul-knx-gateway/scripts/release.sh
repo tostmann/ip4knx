@@ -54,6 +54,17 @@ if [[ -f "$HEADER" ]]; then
     fi
 fi
 
+# C3-vs-C6 smoke-load gate (release condition, decision 2026-06-09).  Every
+# release must be preceded by a passing concurrent-tunnel smoke test on BOTH
+# chip families running this exact version.  scripts/loadtest_c3_c6.py writes
+# the artifact this check consumes.  Deliberate exception (hardware detached,
+# emergency hotfix):  ALLOW_UNTESTED_RELEASE=1 scripts/release.sh <version>
+if [[ "${ALLOW_UNTESTED_RELEASE:-0}" == "1" ]]; then
+    echo "WARNING: ALLOW_UNTESTED_RELEASE=1 — skipping C3/C6 smoke-load gate"
+else
+    python3 scripts/check_loadtest_gate.py --version "$VERSION" || exit 1
+fi
+
 HEAD_SHA=$(git rev-parse --short=7 HEAD)
 echo "Creating annotated tag $TAG on $HEAD_SHA …"
 git tag -a "$TAG" -m "Release $VERSION"

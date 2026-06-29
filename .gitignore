@@ -6,6 +6,10 @@ last_execution.log
 comp.txt
 build.log
 
+# C3/C6 release smoke-load gate artifact — holds lab MAC/IP, never commit
+tul-knx-gateway/.loadtest_pass.json
+.loadtest_pass.json
+
 # Temporary and Analysis Clones
 knx_repo/
 openknx_repo/
