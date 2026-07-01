@@ -555,6 +555,12 @@ void setup() {
     // set before every WiFi.begin().
     WiFi.setSleep(WIFI_PS_NONE);
 
+    // Belt-and-suspenders: arm the core STA auto-reconnect. The loop() watchdog
+    // below is the real recovery path (handles silent drops + lost DHCP leases),
+    // but this covers the plain clean-disassoc case without waiting for a grace
+    // window.
+    WiFi.setAutoReconnect(true);
+
     Serial.println("[F] read SSID/PSK");
     Serial.flush();
     delay(50);
@@ -1070,6 +1076,14 @@ uint32_t lastWifiCheck = 0;
 bool wasConnected = true;
 bool otaValidationPending = true;
 
+// WiFi active-reconnect watchdog. The core auto-reconnect recovers a clean
+// disassociation but NOT a silent drop or a lost DHCP lease; these track the
+// down-duration so loop() can force a fresh re-association + DHCP itself.
+#define WIFI_WATCHDOG_GRACE_MS  30000UL   // let core auto-reconnect try first
+#define WIFI_WATCHDOG_RETRY_MS  30000UL   // then force begin() at this cadence
+uint32_t wifiDownSince     = 0;           // 0 = link considered up
+uint32_t lastReconnectKick = 0;           // last forced WiFi.begin() timestamp
+
 void loop() {
     knx.loop();
 
@@ -1160,21 +1174,50 @@ void loop() {
         return; // Skip normal WiFi monitoring while in AP mode
     }
 
-    // Monitor WiFi Connection
+    // Monitor WiFi + active reconnect watchdog. The core auto-reconnect recovers
+    // a clean disassociation, but not a silent drop or a lost DHCP lease (the STA
+    // can even report WL_CONNECTED while holding 0.0.0.0). We treat "associated
+    // AND has an IP" as the real up-state and force re-association + DHCP once the
+    // grace window passes — otherwise the gateway goes silent until a power-cycle.
     if (millis() - lastWifiCheck > 5000) {
         lastWifiCheck = millis();
-        bool isConnected = (WiFi.status() == WL_CONNECTED);
+        bool associated = (WiFi.status() == WL_CONNECTED);
+        bool hasIp      = ((uint32_t)WiFi.localIP() != 0);
+        bool isConnected = associated && hasIp;
         
         if (isConnected != wasConnected) {
             wasConnected = isConnected;
             if (isConnected) {
-                Serial.println("WiFi reconnected!");
-                Serial.print("IP Address: ");
+                Serial.print("WiFi up! IP Address: ");
                 Serial.println(WiFi.localIP());
                 digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
+                wifiDownSince = 0;
+                lastReconnectKick = 0;
             } else {
-                Serial.println("WARNING: WiFi disconnected! Awaiting auto-reconnect...");
+                Serial.printf("WARNING: WiFi link down (assoc=%d ip=%d) - watchdog active\n",
+                              associated, hasIp);
                 digitalWrite(KNX_LED, HIGH); // LED OFF
+                wifiDownSince = millis();
+            }
+        }
+
+        // Active recovery: once down past the grace window, force a re-assoc +
+        // fresh DHCP every WIFI_WATCHDOG_RETRY_MS until the link is really back.
+        if (!isConnected) {
+            if (wifiDownSince == 0) wifiDownSince = millis();
+            uint32_t downFor = millis() - wifiDownSince;
+            if (downFor >= WIFI_WATCHDOG_GRACE_MS &&
+                (lastReconnectKick == 0 ||
+                 millis() - lastReconnectKick >= WIFI_WATCHDOG_RETRY_MS)) {
+                lastReconnectKick = millis();
+                Serial.printf("WiFi down %lus - forcing reconnect (disconnect + begin)\n",
+                              (unsigned long)(downFor / 1000));
+                WiFi.setSleep(WIFI_PS_NONE);   // keep PS off across re-assoc (C6 rule)
+                // reconnect() = esp_wifi_disconnect()+connect() WITHOUT set_config,
+                // so it won't collide with an in-flight core auto-reconnect (avoids
+                // "sta is connecting, cannot set config"); reuses stored creds and
+                // restarts DHCP on re-association.
+                WiFi.reconnect();
             }
         }
         

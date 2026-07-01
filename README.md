@@ -9,6 +9,7 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Prio 1: Home Assistant Support:** Auto-discovery via KNXnet/IP Routing and complete multi-client support.
 *   **High Performance Concurrency:** Supports up to **10 concurrent KNXnet/IP Tunneling connections** (e.g., simultaneous use of ETS, Home Assistant, Node-RED, etc.).
 *   **Tunnel Source-Address Validation:** Each tunnel gets an assigned individual address; frames with a foreign source IA are rewritten before broadcast (KNXnet/IP Core §4.4, matching MDT/Weinzierl/Gira gateway behavior). Stops one tunnel client from impersonating another.
+*   **Hardened Web Surface:** All state-changing HTTP endpoints are cross-origin (CSRF) gated — a request whose `Origin` does not match the `Host` is rejected — and the captive AP is restricted to onboarding only (scan/connect/status). Same-origin browser UI and non-browser clients (curl/scripts) are unaffected.
 *   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP <MAC>`). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard.
 *   **Web-Based Wi-Fi Setup:** Click the status badge in the web dashboard to open the Wi-Fi configuration modal. Perform a live scan of nearby networks, select your SSID, and enter the password. The gateway will save the credentials and seamlessly reboot into client mode.
 *   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot.
@@ -84,6 +85,10 @@ During the first 120 seconds after powering on, you can also provision Wi-Fi cre
     pip install pyserial
     python3 scripts/test_improv.py --port /dev/ttyUSB0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
     ```
+
+## 🏠 Connecting FHEM (without knxd)
+
+ip4knx is a full KNXnet/IP gateway, so [FHEM](https://fhem.de/) can talk to it **directly via its `KNXIO` module — no `knxd` required.** See **[HowToFHEM.md](HowToFHEM.md)** for the step-by-step tunneling (Mode H) / routing (Mode M) setup and verification.
 
 ## 🔧 Utilities
 
