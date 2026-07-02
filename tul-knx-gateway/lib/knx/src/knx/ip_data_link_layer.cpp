@@ -895,7 +895,10 @@ void IpDataLinkLayer::loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t
     KnxIpTunnelConnection *tun = nullptr;
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
-        if(tunnels[i].ChannelId == stateRequest.channelId())
+        // channelId 0 is the free-slot sentinel (KnxIpTunnelConnection::Reset),
+        // never a valid assigned id; guard it so a request carrying 0 cannot
+        // match a free tunnel. Falls through to the E_CONNECTION_ID path below.
+        if(stateRequest.channelId() != 0 && tunnels[i].ChannelId == stateRequest.channelId())
         {
             tun = &tunnels[i];
             break;
@@ -943,7 +946,9 @@ void IpDataLinkLayer::loopHandleDisconnectRequest(uint8_t* buffer, uint16_t leng
     KnxIpTunnelConnection *tun = nullptr;
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
-        if(tunnels[i].ChannelId == discReq.channelId())
+        // channelId 0 is the free-slot sentinel; guard it so a request carrying
+        // 0 cannot match a free tunnel. Falls through to E_CONNECTION_ID below.
+        if(discReq.channelId() != 0 && tunnels[i].ChannelId == discReq.channelId())
         {
             tun = &tunnels[i];
             break;
@@ -989,7 +994,9 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
     KnxIpTunnelConnection *tun = nullptr;
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
-        if(tunnels[i].ChannelId == confReq.connectionHeader().channelId())
+        // channelId 0 is the free-slot sentinel; guard it so a request carrying
+        // 0 cannot match a free tunnel. Falls through to E_CONNECTION_ID below.
+        if(confReq.connectionHeader().channelId() != 0 && tunnels[i].ChannelId == confReq.connectionHeader().channelId())
         {
             tun = &tunnels[i];
             break;
@@ -1032,7 +1039,9 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
     KnxIpTunnelConnection *tun = nullptr;
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
-        if(tunnels[i].ChannelId == tunnReq.connectionHeader().channelId())
+        // channelId 0 is the free-slot sentinel; guard it so a request carrying
+        // 0 cannot match a free tunnel. Falls through to E_CONNECTION_ID below.
+        if(tunnReq.connectionHeader().channelId() != 0 && tunnels[i].ChannelId == tunnReq.connectionHeader().channelId())
         {
             tun = &tunnels[i];
             break;

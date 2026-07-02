@@ -38,6 +38,10 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password) {
 
 uint32_t bootTime = 0;
 bool isApMode = false;
+// True only for the *involuntary* fallback AP (boot window expired with no
+// WiFi). Onboarding (no creds) and button-started APs leave this false: they
+// are deliberate and must not be auto-exited when a stale STA re-associates.
+bool apModeIsFallback = false;
 bool pendingReboot = false;
 uint32_t rebootTime = 0;
 uint32_t buttonPressStart = 0;
@@ -82,9 +86,15 @@ struct UpdateInfo {
     // updateInstallTask (separate task) writes them -> volatile so the reader
     // never caches a stale value. 32-bit aligned scalars are atomic on RISC-V.
     volatile UpdateState state = UPD_IDLE;
-    String latestVersion;             // written only in async_tcp task -> safe
-    String url;                       // "
-    String md5;                       // "
+    // latestVersion/url/md5 are written by the ota_check task (doUpdateCheck) but
+    // read from other tasks: latestVersion by the status handler and url/md5 by
+    // the install pre-check, both on async_tcp. Fixed char[] (not String) so a
+    // concurrent read cannot land on a realloc'd/freed String buffer (a
+    // use-after-free); worst case is a torn read that self-corrects on the next
+    // poll — same rationale as error[] below. Written via strlcpy.
+    char latestVersion[24] = {0};
+    char url[192] = {0};
+    char md5[33] = {0};
     // error is written by updateInstallTask and read by the status handler in a
     // different task. A String there is a use-after-free (realloc frees the
     // reader's buffer); a fixed char[] degrades the worst case to a harmless
@@ -205,6 +215,22 @@ static bool originAllowed(AsyncWebServerRequest *request) {
     return urlHostOnly(request->header("Origin")) == urlHostOnly(request->host());
 }
 
+// DNS-rebinding defense. originAllowed() alone is bypassable: a rebinding
+// attacker controls both Origin and Host (attacker.com resolves to the device
+// IP, so a victim's browser sends Origin: attacker.com AND Host: attacker.com —
+// they match). Pin Host to the device's own identities instead; a browser
+// cannot forge Host to the device's LAN IP / mDNS name from an attacker-served
+// page. Empty Host (odd non-browser client) is allowed — a browser rebinding
+// request always carries a Host, and the Origin gate still applies.
+static bool hostAllowed(AsyncWebServerRequest *request) {
+    String h = urlHostOnly(request->host());   // lowercased, port stripped
+    if (h.length() == 0) return true;
+    if (h == "tul.local" || h == "tul") return true;
+    if (h == WiFi.localIP().toString()) return true;
+    if (isApMode && h == WiFi.softAPIP().toString()) return true;
+    return false;
+}
+
 // Gate for state-changing endpoints. Sends the 403 itself; the caller just
 // returns. The provisioning AP is OPEN (no PSK) — anyone in RF range can join.
 // While it is active the web surface is onboarding-only: scan/connect/status
@@ -213,6 +239,14 @@ static bool originAllowed(AsyncWebServerRequest *request) {
 static bool mutationAllowed(AsyncWebServerRequest *request, bool allowInApMode = false) {
     if (!originAllowed(request)) {
         request->send(403, "application/json", "{\"error\":\"cross-origin request rejected\"}");
+        return false;
+    }
+    // Pin Host for normal operation. Skip it for the AP-mode onboarding route:
+    // the captive portal is reached via hijacked hostnames (dnsServer resolves
+    // * -> softAP IP) so its Host is not the device IP, and the AP threat model
+    // is RF proximity, not remote DNS rebinding.
+    if (!(isApMode && allowInApMode) && !hostAllowed(request)) {
+        request->send(403, "application/json", "{\"error\":\"host not recognized\"}");
         return false;
     }
     if (isApMode && !allowInApMode) {
@@ -251,7 +285,7 @@ static bool doUpdateCheck() {
         updateInfo.state = UPD_ERROR;
         return false;
     }
-    updateInfo.latestVersion = latest;
+    strlcpy(updateInfo.latestVersion, latest.c_str(), sizeof(updateInfo.latestVersion));
 
     String path = jsonGetOtaField(body, "path");
     String md5  = jsonGetOtaField(body, "md5");
@@ -262,8 +296,9 @@ static bool doUpdateCheck() {
     }
     String base = String(UPDATE_MANIFEST_URL);
     int lastSlash = base.lastIndexOf('/');
-    updateInfo.url = base.substring(0, lastSlash + 1) + path;
-    updateInfo.md5 = md5;
+    String fullUrl = base.substring(0, lastSlash + 1) + path;
+    strlcpy(updateInfo.url, fullUrl.c_str(), sizeof(updateInfo.url));
+    strlcpy(updateInfo.md5, md5.c_str(), sizeof(updateInfo.md5));
 
     if (versionCompare(latest, FIRMWARE_VERSION) > 0) {
         updateInfo.state = UPD_AVAILABLE;
@@ -332,7 +367,7 @@ static void updateInstallTask(void* arg) {
         vTaskDelete(NULL);
         return;
     }
-    if (!Update.setMD5(updateInfo.md5.c_str())) {
+    if (!Update.setMD5(updateInfo.md5)) {
         setUpdateError("setMD5 rejected (bad format)");
         updateInfo.state = UPD_ERROR;
         Update.abort();
@@ -414,7 +449,7 @@ static void updateInstallTask(void* arg) {
 
 static bool kickOffUpdateInstall() {
     if (updateInfo.state == UPD_INSTALLING) return false;
-    if (updateInfo.url.length() == 0 || updateInfo.md5.length() != 32) {
+    if (updateInfo.url[0] == '\0' || strlen(updateInfo.md5) != 32) {
         setUpdateError("no pending update — run /api/update/check first");
         updateInfo.state = UPD_ERROR;
         return false;
@@ -440,7 +475,7 @@ static String updateStatusJson() {
     String j = "{";
     j += "\"state\":\"" + String(updateStateName(updateInfo.state)) + "\",";
     j += "\"current\":\"" + String(FIRMWARE_VERSION) + "\",";
-    j += "\"latest\":\"" + updateInfo.latestVersion + "\",";
+    j += "\"latest\":\"" + String(updateInfo.latestVersion) + "\",";
     j += "\"available\":" + String(updateInfo.state == UPD_AVAILABLE ? "true" : "false") + ",";
     j += "\"progress\":" + String((unsigned)updateInfo.progress) + ",";
     j += "\"total\":" + String((unsigned)updateInfo.total) + ",";
@@ -1067,6 +1102,7 @@ void setup() {
             Serial.println(WiFi.softAPIP());
             dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
             isApMode = true;
+            apModeIsFallback = true;
         }
         digitalWrite(KNX_LED, LOW); // LED ON anyway
     }
@@ -1163,15 +1199,42 @@ void loop() {
     buttonState = currentButtonState;
 
     if (isApMode) {
-        dnsServer.processNextRequest();
-        // Double flash pattern for AP mode: 100ms ON, 100ms OFF, 100ms ON, 700ms OFF
-        uint32_t t = millis() % 1000;
-        if (t < 100 || (t > 200 && t < 300)) {
-            digitalWrite(KNX_LED, LOW); // ON (Active Low)
+        // The fallback AP is a recovery state, not a destination. It is entered
+        // in setup() when the boot window expired with no WiFi, but the STA
+        // stays armed the whole time (core auto-reconnect). If it re-associates
+        // and gets an IP, tear the AP down and resume normal STA operation so
+        // the WiFi watchdog is armed again — otherwise the gateway would sit in
+        // the open captive-portal AP until a manual power-cycle even though the
+        // network is back (the exact silent-until-power-cycle failure the
+        // watchdog exists to prevent). Onboarding and button-started APs are
+        // deliberate (apModeIsFallback == false) and are NOT auto-exited.
+        if (apModeIsFallback &&
+            WiFi.status() == WL_CONNECTED && (uint32_t)WiFi.localIP() != 0) {
+            Serial.print("Fallback-AP: STA re-associated, leaving AP mode. IP: ");
+            Serial.println(WiFi.localIP());
+            WiFi.softAPdisconnect(true);
+            WiFi.mode(WIFI_STA);
+            dnsServer.stop();
+            isApMode = false;
+            apModeIsFallback = false;
+            digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
+            // Prime the watchdog to the "up" state so the next 5 s sample sees
+            // steady-connected and does not log a spurious down-transition.
+            wasConnected = true;
+            wifiDownSince = 0;
+            lastReconnectKick = 0;
+            // Fall through to normal WiFi monitoring this iteration.
         } else {
-            digitalWrite(KNX_LED, HIGH); // OFF
+            dnsServer.processNextRequest();
+            // Double flash pattern for AP mode: 100ms ON, 100ms OFF, 100ms ON, 700ms OFF
+            uint32_t t = millis() % 1000;
+            if (t < 100 || (t > 200 && t < 300)) {
+                digitalWrite(KNX_LED, LOW); // ON (Active Low)
+            } else {
+                digitalWrite(KNX_LED, HIGH); // OFF
+            }
+            return; // Skip normal WiFi monitoring while in AP mode
         }
-        return; // Skip normal WiFi monitoring while in AP mode
     }
 
     // Monitor WiFi + active reconnect watchdog. The core auto-reconnect recovers
