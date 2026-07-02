@@ -42,6 +42,12 @@ bool isApMode = false;
 // WiFi). Onboarding (no creds) and button-started APs leave this false: they
 // are deliberate and must not be auto-exited when a stale STA re-associates.
 bool apModeIsFallback = false;
+// Authorizes /api/wifi/connect while in AP mode. True for onboarding (no creds)
+// and button-started APs; false for the involuntary fallback AP, where the open
+// AP + stored creds would otherwise let an RF-range attacker relocate the device
+// onto their own network. A physical button long-press re-authorizes it (proves
+// presence) so a moved device can still be reprovisioned via the captive portal.
+bool apConnectAuthorized = false;
 bool pendingReboot = false;
 uint32_t rebootTime = 0;
 uint32_t buttonPressStart = 0;
@@ -619,6 +625,7 @@ void setup() {
         WiFi.softAP(apName.c_str());
         dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
         isApMode = true;
+        apConnectAuthorized = true;   // onboarding: nothing to protect yet
         Serial.print("AP IP Address: ");
         Serial.println(WiFi.softAPIP());
     } else {
@@ -750,7 +757,12 @@ void setup() {
     });
 
     server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *request){
-        if (!mutationAllowed(request, true /*onboarding route*/)) return;
+        // Onboarding route, but only exempt from the AP-mode lock when connect is
+        // authorized (onboarding / button AP). In the involuntary fallback AP the
+        // lock stays on so an RF-range attacker can't relocate the device; a
+        // button long-press (physical presence) re-authorizes. STA mode is
+        // unaffected (mutationAllowed only gates on isApMode).
+        if (!mutationAllowed(request, apConnectAuthorized)) return;
         if(request->hasParam("ssid", true)) {
             String ssid = request->getParam("ssid", true)->value();
             String pass = request->hasParam("password", true) ? request->getParam("password", true)->value() : "";
@@ -864,6 +876,11 @@ void setup() {
 
     // Online-Update: HTTPS-pull from install.busware.de/ip4knx/manifest.json.
     server.on("/api/update/check", HTTP_GET, [](AsyncWebServerRequest *request){
+        // GET, but side-effecting (spawns an outbound HTTPS task), so gate it
+        // like the mutating routes — otherwise a cross-origin page could churn
+        // the update state / spam install.busware.de. Same-origin frontend GETs
+        // send no Origin and carry the device's own Host, so they pass.
+        if (!mutationAllowed(request)) return;
         // Async: spawn the blocking HTTPS check on its own task and return the
         // current status immediately (state="checking"). Frontend polls
         // /api/update/status until it flips to available/idle/error.
@@ -1063,9 +1080,10 @@ void setup() {
                 WiFi.softAP(apName.c_str());
                 dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
                 isApMode = true;
+                apConnectAuthorized = true;   // button = physical presence
                 Serial.print("AP IP Address: ");
                 Serial.println(WiFi.softAPIP());
-                
+
                 // Optional: clear credentials so it stays in AP mode if it was failing?
                 // Let's just start AP.
             }
@@ -1191,9 +1209,20 @@ void loop() {
             Serial.print("AP IP Address: ");
             Serial.println(WiFi.softAPIP());
             isApMode = true;
+            apConnectAuthorized = true;   // button = physical presence
             if (knx.progMode()) {
                 knx.progMode(false);
             }
+        } else if (isApMode && apModeIsFallback && !apConnectAuthorized &&
+                   (millis() - buttonPressStart > 2000)) {
+            // Physical-presence override for a device stuck in the fallback AP
+            // (e.g. moved to a new network): a long-press authorizes
+            // /api/wifi/connect so it can be reprovisioned via the captive
+            // portal. An RF-range attacker on the open AP cannot press the
+            // button. Leaves apModeIsFallback set so the auto-exit still fires
+            // if the original network happens to return.
+            Serial.println("Button held > 2s in fallback AP - reprovisioning authorized");
+            apConnectAuthorized = true;
         }
     }
     buttonState = currentButtonState;
