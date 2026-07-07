@@ -12,7 +12,7 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Hardened Web Surface:** All state-changing HTTP endpoints are cross-origin (CSRF) gated — a request whose `Origin` does not match the `Host` is rejected — and the captive AP is restricted to onboarding only (scan/connect/status). Same-origin browser UI and non-browser clients (curl/scripts) are unaffected.
 *   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP <MAC>`). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard.
 *   **Web-Based Wi-Fi Setup:** Click the status badge in the web dashboard to open the Wi-Fi configuration modal. Perform a live scan of nearby networks, select your SSID, and enter the password. The gateway will save the credentials and seamlessly reboot into client mode.
-*   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot.
+*   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot. First-time provisioning is reliable even while the captive AP is broadcasting — the strongest matching access point is selected without a forced radio channel that would otherwise break the WPA2 handshake in the AP+STA window.
 *   **OTA Firmware Update:** Two paths, both with MD5 verification: (a) **online update** from a signed manifest at [install.busware.de/ip4knx/](https://install.busware.de/ip4knx/) — one click in the dashboard pulls the latest firmware over HTTPS; (b) **manual upload** of any `firmware_*.bin` through the same dashboard.
 *   **Dual-OTA Anti-Brick:** Two app partitions plus bootloader app-rollback. A freshly OTA'd partition stays `PENDING_VERIFY` for the first 30 s; if the new firmware crashes before then, the bootloader falls back to the previous partition on next boot.
 *   **Programming Mode Toggle:** One-click ETS programming-mode activation from the dashboard / `/api/progmode` (no more reaching for the physical button during commissioning).
@@ -20,6 +20,7 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, NCN transceiver state, OTA partition + state, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
 *   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`.
 *   **Hardware Watchdog:** Active Task Watchdog Timer (TWDT) and Wi-Fi connection monitoring for ultimate stability.
+*   **KNX-Stack Robustness:** Inbound KNXnet/IP frames are validated against malformed and truncated cEMI before they reach the TP bus, and the transmit path fails safe under heap/allocation pressure — hardening adopted from upstream OpenKNX robustness work.
 *   **Build Versioning:** Git hash and build number displayed in serial output and `/api/status` JSON.
 
 ## 🎛 Supported Hardware

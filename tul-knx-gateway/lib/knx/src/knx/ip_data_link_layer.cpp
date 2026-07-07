@@ -44,7 +44,14 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
     KnxIpRoutingIndication packet(frame);
     // only send 50 packet per second: see KNX 3.2.6 p.6
     if(isSendLimitReached())
+    {
+        // every other sendFrame path reports via dataConReceived(); the send-limit drop was the
+        // only branch returning false WITHOUT one -> emit the (negative) con to keep the contract
+        // uniform. Safe: a routed frame's foreign-source con is discarded at NetworkLayerCoupler,
+        // no re-queue/retransmit (isSendLimitReached is a pure sliding-window counter).
+        dataConReceived(frame, false);
         return false;
+    }
     bool success = sendBytes(packet.data(), packet.totalLength());
 #ifdef KNX_ACTIVITYCALLBACK
     if(_dllcb)
@@ -358,7 +365,11 @@ void IpDataLinkLayer::loop()
             KnxIpRoutingIndication routingIndication(buffer, len);
             // Routing indications carry an L_Data cEMI; drop malformed frames
             // before the network layer reads ctrl/addr fields off a bogus length.
-            if (routingIndication.frame().valid())
+            // Order load-bearing: totalLenght()!=0 (returns _length = datagram-len minus 6, a
+            // trusted transport count, NOT derived from _data[1]) must be evaluated FIRST so
+            // valid() never runs on a 0-length cEMI — valid()'s own bounds checks are gated on
+            // _length!=0 and would otherwise read stale buffer bytes off the intended frame.
+            if (routingIndication.frame().totalLenght() != 0 && routingIndication.frame().valid())
                 frameReceived(routingIndication.frame());
             break;
         }
@@ -663,6 +674,10 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
         }
         uint8_t count = KNX_TUNNELING;
         _ipParameters.writeProperty(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES, 1, addrbuffer, count);
+        // re-point `addresses` at the property's live storage: addrbuffer[] is block-scoped
+        // and would dangle when read later (popWord(addresses + tunIdx*2)); propertyData()
+        // returns the persisted copy we just wrote (same source the configured branch uses).
+        addresses = _ipParameters.propertyData(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES);
 #ifdef KNX_LOG_TUNNELING
     	println("no Tunnel-PAs configured, using own subnet");
 #endif

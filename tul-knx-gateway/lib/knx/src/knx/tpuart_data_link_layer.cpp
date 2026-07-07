@@ -17,6 +17,11 @@ void TpUartDataLinkLayer::setRepetitions(uint8_t nack, uint8_t busy)
 bool TpUartDataLinkLayer::sendFrame(CemiFrame &cemiFrame)
 {
     uint8_t *tpData = (uint8_t *)malloc(cemiFrame.telegramLengthtTP());
+    if (!tpData) // bail on alloc failure instead of null-deref in fillTelegramTP() under heap pressure
+    {
+        dataConReceived(cemiFrame, false);
+        return false;
+    }
     cemiFrame.fillTelegramTP(tpData);
 
     TPUart::Frame *tpFrame = new TPUart::Frame((char *)tpData, cemiFrame.telegramLengthtTP());
