@@ -55,10 +55,34 @@ bool buttonState = HIGH;
 DNSServer dnsServer;
 const byte DNS_PORT = 53;
 
-// M5: outcome of the boot NCN self-test, surfaced in /api/status so a FAIL is
-// visible beyond the serial console. ASCII literals only (no JSON escaping
-// needed). Written once in setup(), read in the async_tcp status handler.
-char selfTestResult[40] = "pending";
+// M5: outcome of the NCN self-test, surfaced in /api/status so a FAIL is
+// visible beyond the serial console.
+//
+// This is no longer a boot snapshot: the TPUart stack retries the handshake for
+// as long as it is uninitialized, so a stick that started without bus power
+// connects on its own once the bus is live — and the status the user sees has to
+// follow that. loop() refreshes the code once a second; the async_tcp status
+// handler turns it into text. Kept as a byte rather than a char[40] precisely
+// because of that cross-task access: a byte store is atomic on RV32, a 40-char
+// copy read concurrently by the web task is not.
+enum NcnSelfTest : uint8_t {
+    NCN_ST_PENDING = 0,
+    NCN_ST_OK,
+    NCN_ST_OK_NO_VBUS,
+    NCN_ST_NO_UART,
+    NCN_ST_NO_DL,
+};
+volatile uint8_t ncnSelfTest = NCN_ST_PENDING;
+
+static const char* ncnSelfTestText(uint8_t st) {
+    switch (st) {
+        case NCN_ST_OK:         return "OK";
+        case NCN_ST_OK_NO_VBUS: return "OK (no VBUS!)";
+        case NCN_ST_NO_UART:    return "FAIL (no NCN UART response)";
+        case NCN_ST_NO_DL:      return "FAIL (no DL layer)";
+        default:                return "pending";
+    }
+}
 
 // H2: KNX progMode is mutated only from loop() (the main task). Web handlers run
 // in the async_tcp task; toggling the stack from there races knx.loop(). The
@@ -675,7 +699,7 @@ void setup() {
         }
         auto tpDl = ((Bau091A&)knx.bau()).getSecondaryDataLinkLayer();
         if (!tpDl) {
-            strlcpy(selfTestResult, "FAIL (no DL layer)", sizeof(selfTestResult));
+            ncnSelfTest = NCN_ST_NO_DL;
             Serial.println("Result: FAIL (no DL layer)");
         } else {
             auto& tp = tpDl->getTPUart();
@@ -690,15 +714,47 @@ void setup() {
                               sys.vfilt() ? '+' : '-',
                               sys.xtal()  ? '+' : '-',
                               sys.thermalWarning() ? '!' : ' ');
-                strlcpy(selfTestResult, sys.vbus() ? "OK" : "OK (no VBUS!)", sizeof(selfTestResult));
+                ncnSelfTest = sys.vbus() ? NCN_ST_OK : NCN_ST_OK_NO_VBUS;
                 Serial.println(sys.vbus() ? "Result: OK" : "Result: OK (no VBUS!)");
             } else {
-                strlcpy(selfTestResult, "FAIL (no NCN UART response)", sizeof(selfTestResult));
+                ncnSelfTest = NCN_ST_NO_UART;
                 Serial.println("Result: FAIL (no NCN UART response)");
+                // Not a dead end any more: the stack keeps retrying the
+                // handshake every 2 s, so plugging the bus in is enough.
+                Serial.println("Hint: no KNX bus power? The gateway keeps retrying,");
+                Serial.println("      connect the bus and it comes up without a reboot.");
             }
         }
     }
     Serial.println("======================\n");
+
+#ifdef NCN_DC2_DIAG
+    // Bench diagnosis only: does VDD2 react to DC2EN? The datasheet (NCN5130
+    // p.19) makes DC2 optional — a board that does not need it ties VDD2MV to
+    // VDD1 and DC2 can never report "in range". Switching DC2EN on tells the
+    // two cases apart: if VDD2 goes high, DC2 was merely disabled; if it stays
+    // low with VFILT set, this board does not run DC2 at all.
+    {
+        Serial.println("=== DC2 diagnosis ===");
+        auto dl = ((Bau091A&)knx.bau()).getSecondaryDataLinkLayer();
+        if (dl) {
+            auto& tp = dl->getTPUart();
+            auto& sys = tp.getSystemState();
+            auto settle = [&]() { for (int i = 0; i < 100; i++) { knx.loop(); delay(20); } };
+            Serial.printf("as-found        : VDD2=%d V20V=%d VFILT=%d VBUS=%d XTAL=%d mode=%s\n",
+                          sys.vdd2(), sys.v20v(), sys.vfilt(), sys.vbus(), sys.xtal(), sys.modeString());
+            dl->powerControl(false);          // ACR0 without DC2EN
+            settle();
+            Serial.printf("after DC2EN=0   : VDD2=%d\n", sys.vdd2());
+            dl->powerControl(true);           // ACR0 with DC2EN|V20VEN|XCLKEN|V20VCLIMIT
+            settle();
+            Serial.printf("after DC2EN=1   : VDD2=%d\n", sys.vdd2());
+        } else {
+            Serial.println("no DL layer");
+        }
+        Serial.println("=====================\n");
+    }
+#endif
 
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
         // Stream straight from PROGMEM via AsyncProgmemResponse. The const char*
@@ -992,7 +1048,7 @@ void setup() {
             json += "\"vfilt\":" + String(sys.vfilt() ? "true" : "false") + ",";
             json += "\"xtal\":"  + String(sys.xtal()  ? "true" : "false") + ",";
             json += "\"thermal_warning\":" + String(sys.thermalWarning() ? "true" : "false") + ",";
-            json += "\"self_test\":\"" + String(selfTestResult) + "\"";
+            json += "\"self_test\":\"" + String(ncnSelfTestText(ncnSelfTest)) + "\"";
             json += "}";
         } else {
             json += "\"rx_bytes\":0,";
@@ -1004,7 +1060,7 @@ void setup() {
                     "\"connected\":false,\"baud\":0,\"mode\":\"-\","
                     "\"v20v\":false,\"vdd2\":false,\"vbus\":false,\"vfilt\":false,"
                     "\"xtal\":false,\"thermal_warning\":false,";
-            json += "\"self_test\":\"" + String(selfTestResult) + "\"}";
+            json += "\"self_test\":\"" + String(ncnSelfTestText(ncnSelfTest)) + "\"}";
         }
 
         // Build info
@@ -1177,6 +1233,27 @@ void loop() {
         if (tpDl && !tpDl->getTPUart().isConnected()) {
             Serial.println("BCU disconnected, forcing TPUart reset");
             tpDl->getTPUart().reset();
+        }
+    }
+
+    // Track the NCN link so /api/status reports what is true now, not what was
+    // true at boot. Without this a stick that started with no bus attached kept
+    // reporting the boot FAIL after the stack had already reconnected itself.
+    static unsigned long lastNcnPoll = 0;
+    if (millis() - lastNcnPoll > 1000) {
+        lastNcnPoll = millis();
+        auto tpDl = ((Bau091A&)knx.bau()).getSecondaryDataLinkLayer();
+        uint8_t now = NCN_ST_NO_DL;
+        if (tpDl) {
+            auto& tp = tpDl->getTPUart();
+            now = !tp.isConnected()               ? NCN_ST_NO_UART
+                : tp.getSystemState().vbus()      ? NCN_ST_OK
+                                                  : NCN_ST_OK_NO_VBUS;
+        }
+        if (now != ncnSelfTest) {
+            Serial.printf("NCN state: %s -> %s\n",
+                          ncnSelfTestText(ncnSelfTest), ncnSelfTestText(now));
+            ncnSelfTest = now;
         }
     }
 

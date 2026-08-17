@@ -67,7 +67,18 @@ namespace TPUart
 
             // UART-Konfiguration anwenden
             uart_param_config(_uart, &uart_config);
+#ifdef TPUART_LATE_ATTACH_TEST_MS
+            // Bench harness only, never defined in a release build: park RX on an
+            // unconnected pin for the first N ms so the NCN looks absent, exactly
+            // as it does on a stick powered up before its bus. Used to prove the
+            // free-running re-init in DataLinkLayer::process() recovers without a
+            // reboot once the transceiver answers.
+            uart_set_pin(_uart, _tx,
+                         (millis() < TPUART_LATE_ATTACH_TEST_MS) ? TPUART_LATE_ATTACH_TEST_PIN : _rx,
+                         UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+#else
             uart_set_pin(_uart, _tx, _rx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+#endif
             uart_driver_install(_uart, 512, 512, 32, &_taskQueue, 0);
             uart_set_rx_full_threshold(_uart, 1);
             _running = true;

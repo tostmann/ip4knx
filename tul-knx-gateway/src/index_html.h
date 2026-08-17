@@ -99,6 +99,19 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
         .rail-badge.ok  { background: #2c7a3d; color: #fff; }
         .rail-badge.bad { background: #a02828; color: #fff; }
+        /* No contact with the NCN means the rails are unknown, not bad —
+           colouring them red made a missing bus look like a broken device. */
+        .rail-badge.unknown { background: #bbb; color: #f5f5f5; }
+        .ncn-hint {
+            margin-top: 0.7rem;
+            padding: 0.6rem 0.75rem;
+            border-left: 4px solid #b8860b;
+            background: #fdf6e3;
+            color: #6b5300;
+            font-size: 0.86rem;
+            line-height: 1.45;
+            border-radius: 3px;
+        }
         footer {
             text-align: center;
             padding: 1rem;
@@ -199,6 +212,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <div class="info-row"><span>Zustand:</span> <span id="ncn_state" class="status-badge">-</span></div>
                     <div class="info-row"><span>Modus:</span> <span id="ncn_mode">-</span></div>
                     <div class="info-row"><span>Baudrate:</span> <span id="ncn_baud">-</span></div>
+                    <div class="info-row"><span>Selbsttest:</span> <span id="ncn_selftest">-</span></div>
                     <div class="info-row rail-row">
                         <span>Power Rails:</span>
                         <span id="ncn_v20v"  class="rail-badge" title="V20V linearer Spannungsregler in normalem Betriebsbereich">V20V</span>
@@ -208,9 +222,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                         <span id="ncn_xtal"  class="rail-badge" title="Quarz-Oszillator-Frequenz im normalen Bereich">XTAL</span>
                         <span id="ncn_tw"    class="rail-badge bad" style="display:none;" title="Thermal Warning aktiv">TW</span>
                     </div>
+                    <div id="ncn_hint" class="ncn-hint" style="display:none;"></div>
                     <br>
                     <small style="color:#666;">
-                        Wird beim Boot getestet (U_RESET_REQ / U_STATE_REQ &uuml;ber UART). VBUS ist der prim&auml;re Indikator
+                        Wird laufend gepr&uuml;ft (U_RESET_REQ / U_STATE_REQ &uuml;ber UART). VBUS ist der prim&auml;re Indikator
                         f&uuml;r angeschlossene KNX-Busspannung.
                     </small>
                 </div>
@@ -657,18 +672,53 @@ const char index_html[] PROGMEM = R"rawliteral(
                     if (data.ncn) {
                         document.getElementById('ncn_type').innerText = data.ncn.type;
                         var stateBadge = document.getElementById('ncn_state');
-                        stateBadge.innerText = data.ncn.state;
+                        // The stack's own vocabulary ("Uninitialized") tells a user
+                        // nothing about what to do. Say what it means for the bus.
+                        var stateText = {
+                            'Connected':     'Verbunden',
+                            'Disconnected':  'Keine Antwort',
+                            'Busmonitor':    'Busmonitor',
+                            'Uninitialized': 'Kein Bus erkannt',
+                            'NoLayer':       'Nicht initialisiert'
+                        }[data.ncn.state] || data.ncn.state;
+                        stateBadge.innerText = stateText;
                         stateBadge.className = 'status-badge ' + (data.ncn.connected ? 'status-online' : 'status-offline');
                         document.getElementById('ncn_mode').innerText = data.ncn.mode;
                         document.getElementById('ncn_baud').innerText = data.ncn.baud > 0 ? (data.ncn.baud + ' Bd') : '—';
+                        var stEl = document.getElementById('ncn_selftest');
+                        if (stEl) stEl.innerText = data.ncn.self_test || '—';
                         ['v20v','vdd2','vbus','vfilt','xtal'].forEach(function(r) {
                             var el = document.getElementById('ncn_' + r);
                             if (!el) return;
-                            el.classList.toggle('ok',  !!data.ncn[r]);
-                            el.classList.toggle('bad',  !data.ncn[r]);
+                            // Without a link to the NCN nobody measured these —
+                            // show them as unknown instead of failing.
+                            el.classList.toggle('ok',      data.ncn.connected && !!data.ncn[r]);
+                            el.classList.toggle('bad',     data.ncn.connected &&  !data.ncn[r]);
+                            el.classList.toggle('unknown', !data.ncn.connected);
+                            if (!el.dataset.title) el.dataset.title = el.title;
+                            el.title = data.ncn.connected ? el.dataset.title
+                                     : 'Unbekannt — keine Verbindung zum NCN5130';
                         });
                         var tw = document.getElementById('ncn_tw');
-                        if (tw) tw.style.display = data.ncn.thermal_warning ? 'inline-block' : 'none';
+                        if (tw) tw.style.display = (data.ncn.connected && data.ncn.thermal_warning) ? 'inline-block' : 'none';
+                        var hint = document.getElementById('ncn_hint');
+                        if (hint) {
+                            var msg = '';
+                            if (data.ncn.state === 'Uninitialized' || data.ncn.state === 'NoLayer') {
+                                msg = '<b>Der Transceiver antwortet nicht.</b> Der NCN5130 wird aus dem KNX-Bus versorgt — '
+                                    + 'bitte Busklemme und Busspannung pr&uuml;fen. '
+                                    + 'Das Gateway versucht es alle 2&nbsp;Sekunden erneut: sobald der Bus anliegt, '
+                                    + 'geht es von selbst in Betrieb, ein Neustart ist nicht n&ouml;tig.';
+                            } else if (!data.ncn.connected) {
+                                msg = '<b>Verbindung zum Transceiver verloren.</b> Das Gateway setzt den NCN5130 automatisch '
+                                    + 'zur&uuml;ck und verbindet sich neu.';
+                            } else if (!data.ncn.vbus) {
+                                msg = '<b>Keine Busspannung (VBUS).</b> Der Transceiver antwortet, aber der KNX-Bus liefert '
+                                    + 'keine Spannung — Telegramme k&ouml;nnen weder empfangen noch gesendet werden.';
+                            }
+                            hint.innerHTML = msg;
+                            hint.style.display = msg ? 'block' : 'none';
+                        }
                     }
 
                     if (data.rx_frames !== undefined) {

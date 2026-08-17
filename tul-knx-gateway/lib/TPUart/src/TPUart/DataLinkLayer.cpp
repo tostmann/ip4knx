@@ -22,6 +22,7 @@ namespace TPUart
     {
         if (_bcuState != BCU_UNINITIALIZED) return;
         _lastTryInitialize = millis();
+        _initAttempts++;
 
         uint baudrates[2] = {19200, 38400};
         for (uint baudrate : baudrates)
@@ -34,6 +35,10 @@ namespace TPUart
                 setBCUState(BCU_CONNECTED, baudrate);
                 _uReset = true;
                 _bcuState = BCU_CONNECTED;
+                // Start the log budget over, so a later loss of the transceiver
+                // is reported in full instead of inheriting the quiet mode of a
+                // long stretch without a bus.
+                _initAttempts = 0;
                 return;
             }
         }
@@ -41,7 +46,12 @@ namespace TPUart
 
     bool DataLinkLayer::tryInitialize(uint baudrate)
     {
-        printMessage("Try Initialize %d", baudrate);
+        // The handshake now retries forever (see process()), so logging every
+        // attempt would bury the rest of the boot output at two lines per 2 s.
+        // Keep the first attempts verbose — that is what a user debugging a
+        // fresh stick sees — then drop to one report per minute.
+        if (_initAttempts <= 3 || (_initAttempts % 30) == 0)
+            printMessage("Try Initialize %d", baudrate);
 
         _interface->end(); // End interface is already initialized
         _interface->begin(baudrate);
@@ -292,12 +302,18 @@ namespace TPUart
     void DataLinkLayer::process()
     {
         if (!_initialized) return;
-        if (_bcuState == BCU_UNINITIALIZED && _interface->available())
+        // Free-running re-init instead of the old `&& _interface->available()`
+        // gate. The NCN draws its power from the KNX bus: a stick that boots
+        // with no bus attached gets no U_RESET_IND, and a dead NCN sends no
+        // bytes at all — so available() stayed false forever and the retry that
+        // was supposed to recover the link never ran. The device then displayed
+        // "Uninitialized" until someone power-cycled it, even after the bus came
+        // up. Retrying on a timer heals that case by itself.
+        if (_bcuState == BCU_UNINITIALIZED)
         {
-            if (millis() - _lastTryInitialize > 1000) tryInitialize();
+            if (millis() - _lastTryInitialize >= TPUART_REINIT_INTERVAL) tryInitialize();
+            if (_bcuState == BCU_UNINITIALIZED) return;
         }
-
-        if (_bcuState == BCU_UNINITIALIZED) return;
 
         if (_bcuState == BCU_DISCONNECTED && _interface->available()) setBCUState(BCU_CONNECTED);
         // Active recovery: even with empty buffer, periodically poke the NCN
