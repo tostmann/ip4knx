@@ -150,6 +150,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         .btn-inline:hover:not(:disabled) { opacity: 0.9; }
         .btn-inline:disabled { background-color: #9ca3af; cursor: not-allowed; opacity: 0.7; }
         #scan-btn { background-color: #6c757d; margin-bottom: 15px; }
+        .language-select { margin-right: 10px; padding: 4px 7px; border: 1px solid #ccc; border-radius: 4px; background: white; color: var(--text-color); }
     </style>
 </head>
 <body>
@@ -159,7 +160,11 @@ const char index_html[] PROGMEM = R"rawliteral(
             TUL KNX/IP Gateway
         </div>
         <div class="nav-links">
-            <span id="system-status" class="status-badge status-online" style="cursor: pointer;" onclick="openWifiModal()" title="Klicken für WLAN Einstellungen">Verbunden</span>
+            <select id="language-select" class="language-select" aria-label="Language" onchange="setLanguage(this.value)">
+                <option value="en">English</option>
+                <option value="de">Deutsch</option>
+            </select>
+            <span id="system-status" class="status-badge status-online" style="cursor: pointer;" onclick="openWifiModal()" data-i18n-title="wifi.settingsTitle" title="Click for Wi-Fi settings" data-i18n="status.connected">Connected</span>
         </div>
     </nav>
 
@@ -167,28 +172,28 @@ const char index_html[] PROGMEM = R"rawliteral(
         <div class="grid">
             
             <section class="card">
-                <div class="card-header">System Status</div>
+                <div class="card-header" data-i18n="system.status">System Status</div>
                 <div class="card-body">
-                    <div class="info-row"><span>Uptime:</span> <span id="uptime">-</span></div>
+                    <div class="info-row"><span data-i18n="system.uptime">Uptime:</span> <span id="uptime">-</span></div>
                     <div class="info-row"><span>WiFi SSID:</span> <span id="wifi_ssid">-</span></div>
-                    <div class="info-row"><span>IP Adresse:</span> <span id="ip_addr">-</span></div>
-                    <div class="info-row"><span>MAC Adresse:</span> <span id="mac_addr">-</span></div>
-                    <div class="info-row" id="eth_row" style="display:none;"><span>Ethernet:</span> <span id="eth_state">-</span></div>
-                    <div class="info-row" id="eth_ip_row" style="display:none;"><span>Ethernet IP:</span> <span id="eth_ip">-</span></div>
-                    <div class="info-row" id="eth_mac_row" style="display:none;"><span>Ethernet MAC:</span> <span id="eth_mac">-</span></div>
+                    <div class="info-row"><span data-i18n="system.ipAddress">IP Address:</span> <span id="ip_addr">-</span></div>
+                    <div class="info-row"><span data-i18n="system.macAddress">MAC Address:</span> <span id="mac_addr">-</span></div>
+                    <div class="info-row" id="eth_row" style="display:none;"><span data-i18n="ethernet.label">Ethernet:</span> <span id="eth_state">-</span></div>
+                    <div class="info-row" id="eth_ip_row" style="display:none;"><span data-i18n="ethernet.ip">Ethernet IP:</span> <span id="eth_ip">-</span></div>
+                    <div class="info-row" id="eth_mac_row" style="display:none;"><span data-i18n="ethernet.mac">Ethernet MAC:</span> <span id="eth_mac">-</span></div>
                 </div>
             </section>
 
             <section class="card">
-                <div class="card-header">KNX Parameter</div>
+                <div class="card-header" data-i18n="knx.parameters">KNX Parameters</div>
                 <div class="card-body">
-                    <div class="info-row"><span>Programmiert (ETS):</span> <span id="knx_configured">-</span></div>
-                    <div class="info-row"><span>Physikalische Adresse:</span> <span id="knx_pa">-</span></div>
+                    <div class="info-row"><span data-i18n="knx.programmed">Programmed (ETS):</span> <span id="knx_configured">-</span></div>
+                    <div class="info-row"><span data-i18n="knx.physicalAddress">Physical Address:</span> <span id="knx_pa">-</span></div>
                     <div class="info-row">
-                        <span>Programmier-Modus:</span>
+                        <span data-i18n="knx.programmingMode">Programming Mode:</span>
                         <span>
                             <span id="prog_mode" class="status-badge status-offline">-</span>
-                            <button id="prog-toggle-btn" class="btn-inline" onclick="toggleProgMode()">Umschalten</button>
+                            <button id="prog-toggle-btn" class="btn-inline" onclick="toggleProgMode()" data-i18n="action.toggle">Toggle</button>
                         </span>
                     </div>
                     <div class="info-row"><span>Status LED Pin:</span> <span id="knx_led_pin">-</span></div>
@@ -200,10 +205,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                 <div class="card-header">KNXnet/IP Clients</div>
                 <div class="card-body">
                     <div class="info-row"><span>Tunneling Slots (Max):</span> <span id="knx_max_tunnels">-</span></div>
-                    <div class="info-row"><span>Aktive Clients:</span> <span id="active_clients">-</span></div>
+                    <div class="info-row"><span data-i18n="knx.activeClients">Active Clients:</span> <span id="active_clients">-</span></div>
                     <br>
                     <small style="color:#666;">
-                        Das Gateway unterst&uuml;tzt parallele KNXnet/IP Tunneling-Verbindungen (z.B. f&uuml;r ETS & HomeAssistant).
+                        <span data-i18n="knx.tunnelingDescription">The gateway supports parallel KNXnet/IP tunnelling connections (for example, ETS and Home Assistant).</span>
                     </small>
                 </div>
             </section>
@@ -211,89 +216,85 @@ const char index_html[] PROGMEM = R"rawliteral(
             <section class="card">
                 <div class="card-header">NCN5130 Transceiver</div>
                 <div class="card-body">
-                    <div class="info-row"><span>Typ:</span> <span id="ncn_type">-</span></div>
-                    <div class="info-row"><span>Zustand:</span> <span id="ncn_state" class="status-badge">-</span></div>
-                    <div class="info-row"><span>Modus:</span> <span id="ncn_mode">-</span></div>
-                    <div class="info-row"><span>Baudrate:</span> <span id="ncn_baud">-</span></div>
-                    <div class="info-row"><span>Selbsttest:</span> <span id="ncn_selftest">-</span></div>
+                    <div class="info-row"><span data-i18n="ncn.type">Type:</span> <span id="ncn_type">-</span></div>
+                    <div class="info-row"><span data-i18n="ncn.state">State:</span> <span id="ncn_state" class="status-badge">-</span></div>
+                    <div class="info-row"><span data-i18n="ncn.mode">Mode:</span> <span id="ncn_mode">-</span></div>
+                    <div class="info-row"><span data-i18n="ncn.baudrate">Baud Rate:</span> <span id="ncn_baud">-</span></div>
+                    <div class="info-row"><span data-i18n="ncn.selfTest">Self Test:</span> <span id="ncn_selftest">-</span></div>
                     <div class="info-row rail-row">
-                        <span>Power Rails:</span>
-                        <span id="ncn_v20v"  class="rail-badge" title="V20V linearer Spannungsregler in normalem Betriebsbereich">V20V</span>
-                        <span id="ncn_vdd2"  class="rail-badge" title="DC2-Regler in normalem Betriebsbereich">VDD2</span>
-                        <span id="ncn_vbus"  class="rail-badge" title="KNX-Busspannung im normalen Bereich">VBUS</span>
-                        <span id="ncn_vfilt" class="rail-badge" title="Tank-Capacitor in normalem Bereich">VFILT</span>
-                        <span id="ncn_xtal"  class="rail-badge" title="Quarz-Oszillator-Frequenz im normalen Bereich">XTAL</span>
-                        <span id="ncn_tw"    class="rail-badge bad" style="display:none;" title="Thermal Warning aktiv">TW</span>
+                        <span data-i18n="ncn.powerRails">Power Rails:</span>
+                        <span id="ncn_v20v"  class="rail-badge" data-i18n-title="ncn.v20v" title="V20V linear voltage regulator within its normal operating range">V20V</span>
+                        <span id="ncn_vdd2"  class="rail-badge" data-i18n-title="ncn.vdd2" title="DC2 regulator within its normal operating range">VDD2</span>
+                        <span id="ncn_vbus"  class="rail-badge" data-i18n-title="ncn.vbus" title="KNX bus voltage within its normal range">VBUS</span>
+                        <span id="ncn_vfilt" class="rail-badge" data-i18n-title="ncn.vfilt" title="Tank capacitor within its normal operating range">VFILT</span>
+                        <span id="ncn_xtal"  class="rail-badge" data-i18n-title="ncn.xtal" title="Crystal oscillator frequency within its normal range">XTAL</span>
+                        <span id="ncn_tw"    class="rail-badge bad" style="display:none;" data-i18n-title="ncn.tw" title="Thermal warning active">TW</span>
                     </div>
                     <div id="ncn_hint" class="ncn-hint" style="display:none;"></div>
                     <br>
                     <small style="color:#666;">
-                        Wird laufend gepr&uuml;ft (U_RESET_REQ / U_STATE_REQ &uuml;ber UART). VBUS ist der prim&auml;re Indikator
-                        f&uuml;r angeschlossene KNX-Busspannung.
+                        <span data-i18n="ncn.description">Continuously checked (U_RESET_REQ / U_STATE_REQ via UART). VBUS is the primary indicator of connected KNX bus voltage.</span>
                     </small>
                 </div>
             </section>
 
             <section class="card">
-                <div class="card-header">KNX Bus Statistik (UART)</div>
+                <div class="card-header" data-i18n="bus.statistics">KNX Bus Statistics (UART)</div>
                 <div class="card-body">
-                    <div class="info-row"><span>Buslast:</span> <span id="bus_load">-</span> %</div>
-                    <div class="info-row"><span>Empfangene Telegramme (RX):</span> <span id="rx_frames">-</span></div>
-                    <div class="info-row"><span>Gesendete Telegramme (TX):</span> <span id="tx_frames">-</span></div>
-                    <div class="info-row"><span>Empfangene Bytes (RX):</span> <span id="rx_bytes">-</span></div>
-                    <div class="info-row"><span>Gesendete Bytes (TX):</span> <span id="tx_bytes">-</span></div>
+                    <div class="info-row"><span data-i18n="bus.load">Bus Load:</span> <span id="bus_load">-</span> %</div>
+                    <div class="info-row"><span data-i18n="bus.receivedFrames">Received Telegrams (RX):</span> <span id="rx_frames">-</span></div>
+                    <div class="info-row"><span data-i18n="bus.sentFrames">Sent Telegrams (TX):</span> <span id="tx_frames">-</span></div>
+                    <div class="info-row"><span data-i18n="bus.receivedBytes">Received Bytes (RX):</span> <span id="rx_bytes">-</span></div>
+                    <div class="info-row"><span data-i18n="bus.sentBytes">Sent Bytes (TX):</span> <span id="tx_bytes">-</span></div>
                 </div>
             </section>
 
             <section class="card">
-                <div class="card-header">Firmware & System</div>
+                <div class="card-header" data-i18n="firmware.system">Firmware & System</div>
                 <div class="card-body">
                     <div class="info-row"><span>Version:</span> <span id="fw_version">-</span></div>
-                    <div class="info-row"><span>Build Nummer:</span> <span id="build_number">-</span></div>
+                    <div class="info-row"><span data-i18n="firmware.buildNumber">Build Number:</span> <span id="build_number">-</span></div>
                     <div class="info-row"><span>Git Hash:</span> <span id="build_git">-</span></div>
-                    <div class="info-row"><span>Aktive Partition:</span> <span id="boot_part">-</span> (<span id="boot_state">-</span>)</div>
+                    <div class="info-row"><span data-i18n="firmware.activePartition">Active Partition:</span> <span id="boot_part">-</span> (<span id="boot_state">-</span>)</div>
 
                     <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
-                    <div style="font-weight:bold; margin-bottom:6px;">Online-Update</div>
+                    <div style="font-weight:bold; margin-bottom:6px;" data-i18n="firmware.onlineUpdate">Online Update</div>
                     <small style="color:#666; display:block; margin-bottom:8px;">
-                        Aktualisierung direkt von <code>install.busware.de/ip4knx/</code>.
-                        Integrität per MD5 aus dem Manifest. Anti-Brick: app1-Boot wird
-                        nur bei korrekter MD5 aktiviert.
+                        <span data-i18n="firmware.onlineUpdateDescription">Update directly from install.busware.de/ip4knx/. The MD5 checksum in the manifest protects integrity. Anti-brick: app1 boot activates only when the MD5 is correct.</span>
                     </small>
                     <div class="info-row">
-                        <span>Neueste Version:</span>
+                        <span data-i18n="firmware.latestVersion">Latest Version:</span>
                         <span>
                             <span id="upd_latest">—</span>
-                            <span id="upd_avail_badge" class="status-badge status-online" style="display:none; margin-left:6px;">verfügbar</span>
+                            <span id="upd_avail_badge" class="status-badge status-online" style="display:none; margin-left:6px;" data-i18n="firmware.available">available</span>
                         </span>
                     </div>
-                    <div id="upd_status" style="font-size:0.85rem; color:#555; margin:6px 0;">Stand unbekannt — Suche starten.</div>
+                    <div id="upd_status" style="font-size:0.85rem; color:#555; margin:6px 0;" data-i18n="update.unknown">Status unknown — start a check.</div>
                     <progress id="upd_progress" value="0" max="100" style="width:100%; display:none;"></progress>
                     <div style="display:flex; gap:8px; margin-top:8px;">
-                        <button id="upd-check-btn"   class="btn" style="background:#6c757d;" onclick="checkOnlineUpdate()">Nach Update suchen</button>
-                        <button id="upd-install-btn" class="btn" onclick="installOnlineUpdate()" disabled>Jetzt aktualisieren</button>
+                        <button id="upd-check-btn"   class="btn" style="background:#6c757d;" onclick="checkOnlineUpdate()" data-i18n="action.checkForUpdates">Check for Updates</button>
+                        <button id="upd-install-btn" class="btn" onclick="installOnlineUpdate()" disabled data-i18n="action.installNow">Install Now</button>
                     </div>
 
                     <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
-                    <div style="font-weight:bold; margin-bottom:6px;">Manuelle Firmware-Datei</div>
+                    <div style="font-weight:bold; margin-bottom:6px;" data-i18n="firmware.manualFile">Manual Firmware File</div>
                     <small style="color:#666; display:block; margin-bottom:8px;">
-                        <code>firmware.bin</code> hochladen. MD5 wird browser-seitig berechnet und geprüft;
-                        bei Mismatch wird die Boot-Partition NICHT umgestellt (Anti-Brick).
+                        <span data-i18n="firmware.manualDescription">Upload firmware.bin. The browser calculates and verifies the MD5 checksum; a mismatch does not switch the boot partition (anti-brick).</span>
                     </small>
                     <input type="file" id="ota-file" accept=".bin" style="width:100%; margin-bottom:8px;">
-                    <div id="ota-status" style="font-size:0.85rem; color:#555; margin-bottom:6px;">Keine Datei ausgewählt.</div>
+                    <div id="ota-status" style="font-size:0.85rem; color:#555; margin-bottom:6px;" data-i18n="ota.noFile">No file selected.</div>
                     <progress id="ota-progress" value="0" max="100" style="width:100%; display:none;"></progress>
-                    <button id="ota-btn" class="btn" onclick="startOta()" disabled>Firmware hochladen</button>
+                    <button id="ota-btn" class="btn" onclick="startOta()" disabled data-i18n="action.uploadFirmware">Upload Firmware</button>
                 </div>
             </section>
 
             <section class="card">
-                <div class="card-header">Hardware Info</div>
+                <div class="card-header" data-i18n="hardware.info">Hardware Info</div>
                 <div class="card-body">
-                    <div class="info-row"><span>Prozessor:</span> <span id="hw_cpu">-</span></div>
-                    <div class="info-row"><span>Taktfrequenz:</span> <span id="hw_freq">-</span> MHz</div>
-                    <div class="info-row"><span>RAM (Gesamt):</span> <span id="hw_ram_total">-</span> KB</div>
-                    <div class="info-row"><span>RAM (Frei):</span> <span id="hw_ram_free">-</span> KB</div>
+                    <div class="info-row"><span data-i18n="hardware.processor">Processor:</span> <span id="hw_cpu">-</span></div>
+                    <div class="info-row"><span data-i18n="hardware.clockSpeed">Clock Speed:</span> <span id="hw_freq">-</span> MHz</div>
+                    <div class="info-row"><span data-i18n="hardware.totalRam">RAM (Total):</span> <span id="hw_ram_total">-</span> KB</div>
+                    <div class="info-row"><span data-i18n="hardware.freeRam">RAM (Free):</span> <span id="hw_ram_free">-</span> KB</div>
                 </div>
             </section>
 
@@ -301,9 +302,9 @@ const char index_html[] PROGMEM = R"rawliteral(
     </main>
 
     <footer>
-        TUL/TUL32 KNX/IP Gateway Firmware - basierend auf <a href="https://github.com/OpenKNX" target="_blank" style="color:var(--primary-color);text-decoration:none;">OpenKNX</a> | 
-        <a href="https://github.com/tostmann/ip4knx" target="_blank" style="color:var(--primary-color);text-decoration:none;">GitHub Repository</a><br>
-        Version: <span id="footer_version">-</span> |
+        <span data-i18n="footer.firmware">TUL/TUL32 KNX/IP Gateway Firmware</span> - <span data-i18n="footer.basedOn">based on</span> <a href="https://github.com/OpenKNX" target="_blank" style="color:var(--primary-color);text-decoration:none;">OpenKNX</a> |
+        <a href="https://github.com/tostmann/ip4knx" target="_blank" style="color:var(--primary-color);text-decoration:none;" data-i18n="footer.repository">GitHub Repository</a><br>
+        <span data-i18n="firmware.version">Version:</span> <span id="footer_version">-</span> |
         Build: <span id="footer_build">-</span> (<span id="footer_git">-</span>)
     </footer>
 
@@ -311,26 +312,132 @@ const char index_html[] PROGMEM = R"rawliteral(
     <div id="wifiModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeWifiModal()">&times;</span>
-            <h2 style="margin-top:0; color:var(--primary-color);">WLAN Konfiguration</h2>
-            <button id="scan-btn" class="btn" onclick="scanWifi()">WLAN Netzwerke suchen</button>
+            <h2 style="margin-top:0; color:var(--primary-color);" data-i18n="wifi.configuration">Wi-Fi Configuration</h2>
+            <button id="scan-btn" class="btn" onclick="scanWifi()" data-i18n="action.scanWifi">Scan Wi-Fi Networks</button>
             <div class="form-group">
-                <label for="ssid">Netzwerkname (SSID):</label>
+                <label for="ssid" data-i18n="wifi.networkName">Network Name (SSID):</label>
                 <select id="ssid-select" style="display:none;" onchange="document.getElementById('ssid').value=this.value;">
-                    <option value="">Wählen Sie ein Netzwerk...</option>
+                    <option value="" data-i18n="wifi.selectNetwork">Select a network...</option>
                 </select>
-                <input type="text" id="ssid" placeholder="Ihre SSID eingeben">
+                <input type="text" id="ssid" placeholder="Enter your SSID" data-i18n-placeholder="wifi.ssidPlaceholder">
             </div>
             <div class="form-group">
-                <label for="password">Passwort (PSK):</label>
-                <input type="password" id="password" placeholder="Passwort (optional)">
+                <label for="password" data-i18n="wifi.password">Password (PSK):</label>
+                <input type="password" id="password" placeholder="Password (optional)" data-i18n-placeholder="wifi.passwordPlaceholder">
             </div>
-            <button class="btn" onclick="connectWifi()">Verbinden & Neustarten</button>
+            <button class="btn" onclick="connectWifi()" data-i18n="action.connectRestart">Connect & Restart</button>
             <hr style="margin: 20px 0; border: 0; border-top: 1px solid #ccc;">
-            <button class="btn" style="background-color: #ef4444;" onclick="startApMode()">Als Access Point (AP) neustarten</button>
+            <button class="btn" style="background-color: #ef4444;" onclick="startApMode()" data-i18n="action.restartAp">Restart as Access Point (AP)</button>
         </div>
     </div>
 
     <script>
+        // English is the source-language markup. German strings live here so
+        // this single-file UI can be localized without a library or an API change.
+        const translations = {
+            en: {
+                'wifi.settingsTitle': 'Click for Wi-Fi settings', 'status.connected': 'Connected',
+                'system.status': 'System Status', 'system.uptime': 'Uptime:', 'system.ipAddress': 'IP Address:', 'system.macAddress': 'MAC Address:',
+                'knx.parameters': 'KNX Parameters', 'knx.programmed': 'Programmed (ETS):', 'knx.physicalAddress': 'Physical Address:', 'knx.programmingMode': 'Programming Mode:', 'action.toggle': 'Toggle', 'knx.activeClients': 'Active Clients:',
+                'knx.tunnelingDescription': 'The gateway supports parallel KNXnet/IP tunnelling connections (for example, ETS and Home Assistant).',
+                'ncn.type': 'Type:', 'ncn.state': 'State:', 'ncn.mode': 'Mode:', 'ncn.baudrate': 'Baud rate:', 'ncn.powerRails': 'Power Rails:',
+                'ncn.v20v': 'V20V linear voltage regulator within its normal operating range', 'ncn.vdd2': 'DC2 regulator within its normal operating range', 'ncn.vbus': 'KNX bus voltage within its normal range', 'ncn.vfilt': 'Tank capacitor within its normal range', 'ncn.xtal': 'Crystal oscillator frequency within its normal range', 'ncn.tw': 'Thermal warning active',
+                'ncn.description': 'Tested at boot (U_RESET_REQ / U_STATE_REQ via UART). VBUS is the primary indicator of connected KNX bus voltage.',
+                'bus.statistics': 'KNX Bus Statistics (UART)', 'bus.load': 'Bus load:', 'bus.receivedFrames': 'Received telegrams (RX):', 'bus.sentFrames': 'Sent telegrams (TX):', 'bus.receivedBytes': 'Received bytes (RX):', 'bus.sentBytes': 'Sent bytes (TX):',
+                'firmware.system': 'Firmware & System', 'firmware.version': 'Version:', 'firmware.buildNumber': 'Build Number:', 'firmware.activePartition': 'Active Partition:', 'firmware.onlineUpdate': 'Online Update',
+                'firmware.onlineUpdateDescription': 'Update directly from install.busware.de/ip4knx/. The MD5 checksum in the manifest protects integrity. Anti-brick: app1 boot activates only when the MD5 is correct.',
+                'firmware.latestVersion': 'Latest Version:', 'firmware.available': 'available', 'update.unknown': 'Status unknown — start a check.', 'action.checkForUpdates': 'Check for Updates', 'action.installNow': 'Install Now', 'firmware.manualFile': 'Manual Firmware File',
+                'firmware.manualDescription': 'Upload firmware.bin. The browser calculates and verifies the MD5 checksum; a mismatch does not switch the boot partition (anti-brick).', 'ota.noFile': 'No file selected.', 'action.uploadFirmware': 'Upload Firmware',
+                'hardware.info': 'Hardware Info', 'hardware.processor': 'Processor:', 'hardware.clockSpeed': 'Clock Speed:', 'hardware.totalRam': 'RAM (Total):', 'hardware.freeRam': 'RAM (Free):',
+                'footer.firmware': 'TUL/TUL32 KNX/IP Gateway Firmware', 'footer.basedOn': 'based on', 'footer.repository': 'GitHub Repository', 'wifi.configuration': 'Wi-Fi Configuration', 'action.scanWifi': 'Scan Wi-Fi Networks',
+                'wifi.networkName': 'Network Name (SSID):', 'wifi.selectNetwork': 'Select a network...', 'wifi.ssidPlaceholder': 'Enter your SSID', 'wifi.password': 'Password (PSK):', 'wifi.passwordPlaceholder': 'Password (optional)', 'action.connectRestart': 'Connect & Restart', 'action.restartAp': 'Restart as Access Point (AP)',
+                'wifi.searching': 'Searching...', 'wifi.scanTimeout': 'Scan timed out!', 'wifi.scanError': 'Error scanning networks!', 'wifi.ssidRequired': 'SSID cannot be empty!', 'wifi.configurationSaved': 'Configuration saved. The gateway will now restart.', 'error.prefix': 'Error: ', 'wifi.sendError': 'Error sending request!',
+                'update.currentIsLatest': 'Current version is the latest ({latest}).', 'update.loadingManifest': 'Loading manifest…', 'update.availableMessage': 'Update available: {latest} (current {current}).', 'update.installing': 'Installing… {progress} / {total} bytes', 'update.done': 'Success — the gateway is restarting. The page will reload automatically.', 'update.unknownError': 'unknown', 'update.confirm': 'Install the online update now? The gateway will restart afterwards.', 'update.startError': 'Error starting update: {error}',
+                'ota.calculatingMd5': 'Calculating MD5…', 'ota.md5Failed': 'MD5 calculation failed: {error}', 'ota.uploading': 'MD5 {md5} — uploading…', 'ota.success': 'OTA successful — the gateway will restart in about 2 seconds.', 'ota.failed': 'OTA failed (HTTP {status})', 'ota.networkError': 'OTA: network error during upload.', 'knx.toggleError': 'Error changing programming mode!', 'knx.active': 'ACTIVE', 'knx.off': 'OFF', 'wifi.clearConfirm': 'Delete Wi-Fi credentials and restart the gateway permanently in AP mode?', 'wifi.cleared': 'Wi-Fi credentials deleted. The gateway will now restart in AP mode.',
+                'ethernet.wifiOff': 'off (Ethernet active)', 'ethernet.noCable': 'No cable', 'ethernet.connected': 'Connected', 'ethernet.activeForKnx': 'Connected, active for KNX',
+                'ncn.stateConnected': 'Connected', 'ncn.stateDisconnected': 'No response', 'ncn.stateBusmonitor': 'Bus monitor', 'ncn.stateUninitialized': 'No bus detected', 'ncn.stateNoLayer': 'Not initialized', 'ncn.unknownNoConnection': 'Unknown — no connection to the NCN5130',
+                'ncn.noResponseHint': '<b>The transceiver is not responding.</b> The NCN5130 is powered by the KNX bus — please check the bus terminal and bus voltage. The gateway retries every 2&nbsp;seconds: as soon as the bus is available, it starts automatically; no restart is needed.',
+                'ncn.connectionLostHint': '<b>Connection to the transceiver was lost.</b> The gateway automatically resets and reconnects the NCN5130.',
+                'ncn.noBusVoltageHint': '<b>No bus voltage (VBUS).</b> The transceiver is responding, but the KNX bus is not supplying voltage — telegrams can neither be received nor sent.',
+                'knx.yes': 'Yes', 'knx.no': 'No', 'status.apMode': 'AP Mode Active', 'status.wifiConnected': 'Wi-Fi Connected', 'status.wifiDisconnected': 'Wi-Fi Disconnected'
+            },
+            de: {
+                'wifi.settingsTitle': 'Für WLAN-Einstellungen klicken', 'status.connected': 'Verbunden',
+                'system.status': 'Systemstatus', 'system.uptime': 'Laufzeit:', 'system.ipAddress': 'IP-Adresse:', 'system.macAddress': 'MAC-Adresse:',
+                'ethernet.label': 'Ethernet:', 'ethernet.ip': 'Ethernet-IP:', 'ethernet.mac': 'Ethernet-MAC:', 'ethernet.wifiOff': 'aus (Ethernet aktiv)', 'ethernet.noCable': 'Kein Kabel', 'ethernet.connected': 'Verbunden', 'ethernet.activeForKnx': 'Verbunden, aktiv für KNX',
+                'knx.parameters': 'KNX-Parameter', 'knx.programmed': 'Programmiert (ETS):', 'knx.physicalAddress': 'Physikalische Adresse:', 'knx.programmingMode': 'Programmiermodus:', 'action.toggle': 'Umschalten', 'knx.activeClients': 'Aktive Clients:',
+                'knx.tunnelingDescription': 'Das Gateway unterstützt parallele KNXnet/IP-Tunneling-Verbindungen (z. B. für ETS und Home Assistant).',
+                'ncn.type': 'Typ:', 'ncn.state': 'Zustand:', 'ncn.mode': 'Modus:', 'ncn.baudrate': 'Baudrate:', 'ncn.selfTest': 'Selbsttest:', 'ncn.powerRails': 'Versorgungsspannungen:',
+                'ncn.v20v': 'V20V-Linearregler im normalen Betriebsbereich', 'ncn.vdd2': 'DC2-Regler im normalen Betriebsbereich', 'ncn.vbus': 'KNX-Busspannung im normalen Bereich', 'ncn.vfilt': 'Tank-Kondensator im normalen Bereich', 'ncn.xtal': 'Quarzoszillator-Frequenz im normalen Betriebsbereich', 'ncn.tw': 'Thermische Warnung aktiv',
+                'ncn.description': 'Wird laufend geprüft (U_RESET_REQ / U_STATE_REQ über UART). VBUS ist der primäre Indikator für angeschlossene KNX-Busspannung.',
+                'ncn.stateConnected': 'Verbunden', 'ncn.stateDisconnected': 'Keine Antwort', 'ncn.stateBusmonitor': 'Busmonitor', 'ncn.stateUninitialized': 'Kein Bus erkannt', 'ncn.stateNoLayer': 'Nicht initialisiert', 'ncn.unknownNoConnection': 'Unbekannt — keine Verbindung zum NCN5130',
+                'ncn.noResponseHint': '<b>Der Transceiver antwortet nicht.</b> Der NCN5130 wird aus dem KNX-Bus versorgt — bitte Busklemme und Busspannung prüfen. Das Gateway versucht es alle 2&nbsp;Sekunden erneut: Sobald der Bus anliegt, geht es von selbst in Betrieb; ein Neustart ist nicht nötig.',
+                'ncn.connectionLostHint': '<b>Verbindung zum Transceiver verloren.</b> Das Gateway setzt den NCN5130 automatisch zurück und verbindet sich neu.',
+                'ncn.noBusVoltageHint': '<b>Keine Busspannung (VBUS).</b> Der Transceiver antwortet, aber der KNX-Bus liefert keine Spannung — Telegramme können weder empfangen noch gesendet werden.',
+                'bus.statistics': 'KNX-Busstatistik (UART)', 'bus.load': 'Buslast:', 'bus.receivedFrames': 'Empfangene Telegramme (RX):', 'bus.sentFrames': 'Gesendete Telegramme (TX):', 'bus.receivedBytes': 'Empfangene Bytes (RX):', 'bus.sentBytes': 'Gesendete Bytes (TX):',
+                'firmware.system': 'Firmware & System', 'firmware.version': 'Version:', 'firmware.buildNumber': 'Build-Nummer:', 'firmware.activePartition': 'Aktive Partition:', 'firmware.onlineUpdate': 'Online-Update',
+                'firmware.onlineUpdateDescription': 'Aktualisierung direkt von install.busware.de/ip4knx/. Die MD5-Prüfsumme im Manifest schützt die Integrität. Anti-Brick: app1-Boot wird nur bei korrekter MD5 aktiviert.',
+                'firmware.latestVersion': 'Neueste Version:', 'firmware.available': 'verfügbar', 'action.checkForUpdates': 'Nach Updates suchen', 'action.installNow': 'Jetzt aktualisieren', 'firmware.manualFile': 'Manuelle Firmware-Datei',
+                'firmware.manualDescription': 'firmware.bin hochladen. Der Browser berechnet und prüft die MD5-Prüfsumme; bei einer Abweichung wird die Boot-Partition nicht umgestellt (Anti-Brick).', 'action.uploadFirmware': 'Firmware hochladen',
+                'hardware.info': 'Hardware-Info', 'hardware.processor': 'Prozessor:', 'hardware.clockSpeed': 'Taktfrequenz:', 'hardware.totalRam': 'RAM (gesamt):', 'hardware.freeRam': 'RAM (frei):',
+                'footer.firmware': 'TUL/TUL32 KNX/IP-Gateway-Firmware', 'footer.basedOn': 'basierend auf', 'footer.repository': 'GitHub-Repository', 'wifi.configuration': 'WLAN-Konfiguration',
+                'wifi.networkName': 'Netzwerkname (SSID):', 'wifi.ssidPlaceholder': 'SSID eingeben', 'wifi.password': 'Passwort (PSK):', 'wifi.passwordPlaceholder': 'Passwort (optional)', 'action.connectRestart': 'Verbinden & neu starten', 'action.restartAp': 'Als Access Point (AP) neu starten',
+                'wifi.selectNetwork': 'Wählen Sie ein Netzwerk...', 'action.scanWifi': 'WLAN Netzwerke suchen', 'update.unknown': 'Stand unbekannt — Suche starten.',
+                'wifi.searching': 'Suche läuft...', 'wifi.scanTimeout': 'Scan-Timeout!', 'wifi.scanError': 'Fehler beim Scannen!', 'wifi.ssidRequired': 'SSID darf nicht leer sein!', 'wifi.configurationSaved': 'Konfiguration gespeichert. Das Gateway startet nun neu.', 'error.prefix': 'Fehler: ', 'wifi.sendError': 'Fehler beim Senden!',
+                'update.currentIsLatest': 'Aktuelle Version ist die neueste ({latest}).', 'update.loadingManifest': 'Manifest wird geladen…', 'update.availableMessage': 'Update verfügbar: {latest} (aktuell {current}).', 'update.installing': 'Installation läuft… {progress} / {total} Bytes', 'update.done': 'Erfolgreich — Gateway startet neu. Seite lädt automatisch.', 'update.unknownError': 'unbekannt', 'update.confirm': 'Online-Update jetzt installieren? Das Gateway startet anschließend neu.', 'update.startError': 'Fehler beim Starten: {error}',
+                'ota.noFile': 'Keine Datei ausgewählt.', 'ota.calculatingMd5': 'Berechne MD5…', 'ota.md5Failed': 'MD5-Berechnung fehlgeschlagen: {error}', 'ota.uploading': 'MD5 {md5} — Upload läuft…', 'ota.success': 'OTA erfolgreich — Gateway startet neu in ~2 s.', 'ota.failed': 'OTA fehlgeschlagen (HTTP {status})', 'ota.networkError': 'OTA: Netzwerkfehler beim Upload.', 'knx.toggleError': 'Fehler beim Umschalten des Programmier-Modus!', 'knx.active': 'AKTIV', 'knx.off': 'AUS', 'wifi.clearConfirm': 'WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?', 'wifi.cleared': 'WLAN-Daten gelöscht. Das Gateway startet nun im AP-Modus neu.',
+                'knx.yes': 'Ja', 'knx.no': 'Nein', 'status.apMode': 'AP Modus Aktiv', 'status.wifiConnected': 'WLAN Verbunden', 'status.wifiDisconnected': 'WLAN Getrennt'
+            }
+        };
+        const defaultStaticText = {};
+        const defaultStaticAttributes = {};
+        let language = 'en';
+        let lastUpdateState = null;
+
+        function t(key, values) {
+            let text = (translations[language] && translations[language][key]) || defaultStaticText[key] || key;
+            return text.replace(/\{(\w+)\}/g, (_, name) => values && values[name] !== undefined ? values[name] : '');
+        }
+
+        function setLanguage(locale) {
+            language = translations[locale] ? locale : 'en';
+            localStorage.setItem('ip4knx-language', language);
+            document.documentElement.lang = language;
+            document.getElementById('language-select').value = language;
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.dataset.i18n;
+                if (defaultStaticText[key] === undefined) defaultStaticText[key] = el.textContent;
+                el.textContent = language === 'en' ? defaultStaticText[key] : t(key);
+            });
+            document.querySelectorAll('[data-i18n-title], [data-i18n-placeholder]').forEach(el => {
+                ['title', 'placeholder'].forEach(attribute => {
+                    const key = el.dataset['i18n' + attribute[0].toUpperCase() + attribute.slice(1)];
+                    if (!key) return;
+                    const storeKey = attribute + ':' + key;
+                    if (defaultStaticAttributes[storeKey] === undefined) defaultStaticAttributes[storeKey] = el.getAttribute(attribute);
+                    el.setAttribute(attribute, language === 'en' ? defaultStaticAttributes[storeKey] : t(key));
+                });
+            });
+            const otaFile = document.getElementById('ota-file');
+            if (!otaFile.files || !otaFile.files[0]) document.getElementById('ota-status').textContent = t('ota.noFile');
+            if (lastUpdateState) renderUpdState(lastUpdateState);
+            updateStatus();
+        }
+
+        function initializeI18n() {
+            const saved = localStorage.getItem('ip4knx-language');
+            // navigator.languages is ordered by the user's language preference
+            // (for example, ["en-GB", "en", "de"]). Match a supported base
+            // language and fall back to English if none is available.
+            const browserLanguages = navigator.languages && navigator.languages.length
+                ? navigator.languages
+                : [navigator.language || 'en'];
+            const browserLanguage = browserLanguages
+                .map(locale => locale.toLowerCase().split('-')[0])
+                .find(locale => translations[locale]) || 'en';
+            setLanguage(saved || browserLanguage);
+        }
+
         function openWifiModal() { document.getElementById('wifiModal').style.display = 'block'; }
         function closeWifiModal() { document.getElementById('wifiModal').style.display = 'none'; }
         
@@ -343,7 +450,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             });
             let sortedNets = Object.values(uniqueNets).sort((a, b) => b.rssi - a.rssi);
             let sel = document.getElementById('ssid-select');
-            sel.innerHTML = '<option value="">Wählen Sie ein Netzwerk...</option>';
+            sel.innerHTML = '<option value="">' + t('wifi.selectNetwork') + '</option>';
             sortedNets.forEach(net => {
                 if(net.ssid) {
                     let opt = document.createElement('option');
@@ -361,11 +468,11 @@ const char index_html[] PROGMEM = R"rawliteral(
         // re-enables even if the scan never completes.
         function scanWifi() {
             let btn = document.getElementById('scan-btn');
-            btn.innerText = 'Suche läuft...';
+            btn.innerText = t('wifi.searching');
             btn.disabled = true;
             function finish(msg) {
                 if (msg) alert(msg);
-                btn.innerText = 'WLAN Netzwerke suchen';
+                btn.innerText = t('action.scanWifi');
                 btn.disabled = false;
             }
             let tries = 0;
@@ -374,25 +481,25 @@ const char index_html[] PROGMEM = R"rawliteral(
                     .then(r => r.json())
                     .then(data => {
                         if (data && data.scanning) {
-                            if (++tries > 20) { finish('Scan-Timeout!'); return; }
+                            if (++tries > 20) { finish(t('wifi.scanTimeout')); return; }
                             setTimeout(poll, 700);
                             return;
                         }
                         renderNets(Array.isArray(data) ? data : []);
                         finish();
                     })
-                    .catch(e => finish('Fehler beim Scannen!'));
+                    .catch(e => finish(t('wifi.scanError')));
             }
             // Kick a fresh scan, then start polling.
             fetch('/api/wifi/scan?start=1')
                 .then(() => setTimeout(poll, 700))
-                .catch(e => finish('Fehler beim Scannen!'));
+                .catch(e => finish(t('wifi.scanError')));
         }
         
         function connectWifi() {
             let ssid = document.getElementById('ssid').value;
             let pass = document.getElementById('password').value;
-            if(!ssid) { alert('SSID darf nicht leer sein!'); return; }
+            if(!ssid) { alert(t('wifi.ssidRequired')); return; }
             
             let formData = new URLSearchParams();
             formData.append('ssid', ssid);
@@ -402,18 +509,19 @@ const char index_html[] PROGMEM = R"rawliteral(
                 .then(r => r.json())
                 .then(d => {
                     if(d.status === 'ok') {
-                        alert('Konfiguration gespeichert. Das Gateway startet nun neu.');
+                        alert(t('wifi.configurationSaved'));
                         closeWifiModal();
                     } else {
-                        alert('Fehler: ' + d.error);
+                        alert(t('error.prefix') + d.error);
                     }
-                }).catch(e => alert('Fehler beim Senden!'));
+                }).catch(e => alert(t('wifi.sendError')));
         }
 
         // === Online-Update (HTTPS-pull from install.busware.de) ===
         let updPollHandle = null;
 
         function renderUpdState(d) {
+            lastUpdateState = d;
             const latestEl  = document.getElementById('upd_latest');
             const badge     = document.getElementById('upd_avail_badge');
             const status    = document.getElementById('upd_status');
@@ -426,12 +534,12 @@ const char index_html[] PROGMEM = R"rawliteral(
 
             let msg = '';
             switch (d.state) {
-                case 'idle':       msg = d.latest ? ('Aktuelle Version ist die neueste (' + d.latest + ').') : 'Stand unbekannt — Suche starten.'; break;
-                case 'checking':   msg = 'Manifest wird geladen…'; break;
-                case 'available':  msg = 'Update verfügbar: ' + d.latest + ' (aktuell ' + d.current + ').'; break;
-                case 'installing': msg = 'Installation läuft… ' + d.progress + ' / ' + (d.total || '?') + ' Bytes'; break;
-                case 'done':       msg = 'Erfolgreich — Gateway startet neu. Seite lädt automatisch.'; break;
-                case 'error':      msg = 'Fehler: ' + (d.error || 'unbekannt'); break;
+                case 'idle':       msg = d.latest ? t('update.currentIsLatest', {latest: d.latest}) : t('update.unknown'); break;
+                case 'checking':   msg = t('update.loadingManifest'); break;
+                case 'available':  msg = t('update.availableMessage', {latest: d.latest, current: d.current}); break;
+                case 'installing': msg = t('update.installing', {progress: d.progress, total: d.total || '?'}); break;
+                case 'done':       msg = t('update.done'); break;
+                case 'error':      msg = t('error.prefix') + (d.error || t('update.unknownError')); break;
             }
             status.innerText = msg;
 
@@ -466,23 +574,23 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
 
         function checkOnlineUpdate() {
-            document.getElementById('upd_status').innerText = 'Manifest wird geladen…';
+            document.getElementById('upd_status').innerText = t('update.loadingManifest');
             document.getElementById('upd-check-btn').disabled = true;
             fetch('/api/update/check')
                 .then(r => r.json())
                 .then(renderUpdState)
                 .catch(e => {
-                    document.getElementById('upd_status').innerText = 'Fehler: ' + e;
+                    document.getElementById('upd_status').innerText = t('error.prefix') + e;
                     document.getElementById('upd-check-btn').disabled = false;
                 });
         }
 
         function installOnlineUpdate() {
-            if (!confirm('Online-Update jetzt installieren? Das Gateway startet anschließend neu.')) return;
+            if (!confirm(t('update.confirm'))) return;
             fetch('/api/update/install', { method: 'POST' })
                 .then(r => r.json())
                 .then(renderUpdState)
-                .catch(e => alert('Fehler beim Starten: ' + e));
+                .catch(e => alert(t('update.startError', {error: e})));
         }
 
         // === OTA upload ===
@@ -496,7 +604,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                     st.textContent = f.files[0].name + ' (' + (f.files[0].size/1024).toFixed(1) + ' KB)';
                 } else {
                     btn.disabled = true;
-                    st.textContent = 'Keine Datei ausgewählt.';
+                    st.textContent = t('ota.noFile');
                 }
             });
         });
@@ -572,17 +680,17 @@ const char index_html[] PROGMEM = R"rawliteral(
             prog.style.display = 'block';
             prog.value = 0;
 
-            st.textContent = 'Berechne MD5…';
+            st.textContent = t('ota.calculatingMd5');
             let md5;
             try {
                 md5 = await md5HexOfBlob(f);
             } catch (e) {
-                st.textContent = 'MD5-Berechnung fehlgeschlagen: ' + e;
+                st.textContent = t('ota.md5Failed', {error: e});
                 btn.disabled = false;
                 prog.style.display = 'none';
                 return;
             }
-            st.textContent = 'MD5 ' + md5 + ' — Upload läuft…';
+            st.textContent = t('ota.uploading', {md5: md5});
 
             const fd = new FormData();
             fd.append('firmware', f, f.name);
@@ -595,18 +703,18 @@ const char index_html[] PROGMEM = R"rawliteral(
             };
             xhr.onload = () => {
                 if (xhr.status === 200) {
-                    st.textContent = 'OTA erfolgreich — Gateway startet neu in ~2 s.';
+                    st.textContent = t('ota.success');
                     prog.value = 100;
                     setTimeout(() => { window.location.reload(); }, 8000);
                 } else {
-                    let msg = 'OTA fehlgeschlagen (HTTP ' + xhr.status + ')';
+                    let msg = t('ota.failed', {status: xhr.status});
                     try { msg += ': ' + (JSON.parse(xhr.responseText).error || ''); } catch (e) {}
                     st.textContent = msg;
                     btn.disabled = false;
                 }
             };
             xhr.onerror = () => {
-                st.textContent = 'OTA: Netzwerkfehler beim Upload.';
+                st.textContent = t('ota.networkError');
                 btn.disabled = false;
             };
             xhr.send(fd);
@@ -622,7 +730,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                     btn.disabled = false;
                 })
                 .catch(e => {
-                    alert('Fehler beim Umschalten des Programmier-Modus!');
+                    alert(t('knx.toggleError'));
                     btn.disabled = false;
                 });
         }
@@ -631,26 +739,26 @@ const char index_html[] PROGMEM = R"rawliteral(
             let badge = document.getElementById('prog_mode');
             if (!badge) return;
             if (active) {
-                badge.innerText = 'AKTIV';
+                badge.innerText = t('knx.active');
                 badge.className = 'status-badge status-online';
             } else {
-                badge.innerText = 'AUS';
+                badge.innerText = t('knx.off');
                 badge.className = 'status-badge status-offline';
             }
         }
 
         function startApMode() {
-            if(!confirm('WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?')) return;
+            if(!confirm(t('wifi.clearConfirm'))) return;
             fetch('/api/wifi/ap_mode', { method: 'POST' })
                 .then(r => r.json())
                 .then(d => {
                     if(d.status === 'ok') {
-                        alert('WLAN-Daten gelöscht. Das Gateway startet nun im AP-Modus neu.');
+                        alert(t('wifi.cleared'));
                         closeWifiModal();
                     } else {
-                        alert('Fehler: ' + d.error);
+                        alert(t('error.prefix') + d.error);
                     }
-                }).catch(e => alert('Fehler beim Senden!'));
+                }).catch(e => alert(t('wifi.sendError')));
         }
 
 
@@ -662,7 +770,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                     // A parked radio would otherwise read as "N/A / 0.0.0.0",
                     // which looks like a fault instead of a deliberate state.
                     if (data.wifi_off_for_eth) {
-                        document.getElementById('wifi_ssid').innerText = 'aus (Ethernet aktiv)';
+                        document.getElementById('wifi_ssid').innerText = t('ethernet.wifiOff');
                         document.getElementById('ip_addr').innerText = '—';
                     } else {
                         document.getElementById('wifi_ssid').innerText = data.ssid;
@@ -679,8 +787,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                         document.getElementById('eth_ip_row').style.display = data.eth.link ? '' : 'none';
                         document.getElementById('eth_mac_row').style.display = '';
                         document.getElementById('eth_state').innerText =
-                            !data.eth.link ? 'Kein Kabel'
-                            : (data.eth.active ? 'Verbunden, aktiv für KNX' : 'Verbunden')
+                            !data.eth.link ? t('ethernet.noCable')
+                            : (data.eth.active ? t('ethernet.activeForKnx') : t('ethernet.connected'))
                               + (data.eth.speed ? ' (' + data.eth.speed + ' Mbit/s)' : '');
                         document.getElementById('eth_ip').innerText = data.eth.ip;
                         document.getElementById('eth_mac').innerText = data.eth.mac;
@@ -690,7 +798,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                         document.getElementById('eth_mac_row').style.display = 'none';
                     }
                     
-                    document.getElementById('knx_configured').innerText = data.knx_configured ? 'Ja' : 'Nein';
+                    document.getElementById('knx_configured').innerText = data.knx_configured ? t('knx.yes') : t('knx.no');
                     document.getElementById('knx_pa').innerText = data.knx_pa;
                     if (data.prog_mode !== undefined) applyProgMode(data.prog_mode);
                     document.getElementById('knx_led_pin').innerText = data.knx_led_pin;
@@ -705,11 +813,11 @@ const char index_html[] PROGMEM = R"rawliteral(
                         // The stack's own vocabulary ("Uninitialized") tells a user
                         // nothing about what to do. Say what it means for the bus.
                         var stateText = {
-                            'Connected':     'Verbunden',
-                            'Disconnected':  'Keine Antwort',
-                            'Busmonitor':    'Busmonitor',
-                            'Uninitialized': 'Kein Bus erkannt',
-                            'NoLayer':       'Nicht initialisiert'
+                            'Connected':     t('ncn.stateConnected'),
+                            'Disconnected':  t('ncn.stateDisconnected'),
+                            'Busmonitor':    t('ncn.stateBusmonitor'),
+                            'Uninitialized': t('ncn.stateUninitialized'),
+                            'NoLayer':       t('ncn.stateNoLayer')
                         }[data.ncn.state] || data.ncn.state;
                         stateBadge.innerText = stateText;
                         stateBadge.className = 'status-badge ' + (data.ncn.connected ? 'status-online' : 'status-offline');
@@ -725,9 +833,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                             el.classList.toggle('ok',      data.ncn.connected && !!data.ncn[r]);
                             el.classList.toggle('bad',     data.ncn.connected &&  !data.ncn[r]);
                             el.classList.toggle('unknown', !data.ncn.connected);
-                            if (!el.dataset.title) el.dataset.title = el.title;
-                            el.title = data.ncn.connected ? el.dataset.title
-                                     : 'Unbekannt — keine Verbindung zum NCN5130';
+                            el.title = data.ncn.connected ? t('ncn.' + r)
+                                     : t('ncn.unknownNoConnection');
                         });
                         var tw = document.getElementById('ncn_tw');
                         if (tw) tw.style.display = (data.ncn.connected && data.ncn.thermal_warning) ? 'inline-block' : 'none';
@@ -735,16 +842,11 @@ const char index_html[] PROGMEM = R"rawliteral(
                         if (hint) {
                             var msg = '';
                             if (data.ncn.state === 'Uninitialized' || data.ncn.state === 'NoLayer') {
-                                msg = '<b>Der Transceiver antwortet nicht.</b> Der NCN5130 wird aus dem KNX-Bus versorgt — '
-                                    + 'bitte Busklemme und Busspannung pr&uuml;fen. '
-                                    + 'Das Gateway versucht es alle 2&nbsp;Sekunden erneut: sobald der Bus anliegt, '
-                                    + 'geht es von selbst in Betrieb, ein Neustart ist nicht n&ouml;tig.';
+                                msg = t('ncn.noResponseHint');
                             } else if (!data.ncn.connected) {
-                                msg = '<b>Verbindung zum Transceiver verloren.</b> Das Gateway setzt den NCN5130 automatisch '
-                                    + 'zur&uuml;ck und verbindet sich neu.';
+                                msg = t('ncn.connectionLostHint');
                             } else if (!data.ncn.vbus) {
-                                msg = '<b>Keine Busspannung (VBUS).</b> Der Transceiver antwortet, aber der KNX-Bus liefert '
-                                    + 'keine Spannung — Telegramme k&ouml;nnen weder empfangen noch gesendet werden.';
+                                msg = t('ncn.noBusVoltageHint');
                             }
                             hint.innerHTML = msg;
                             hint.style.display = msg ? 'block' : 'none';
@@ -761,17 +863,17 @@ const char index_html[] PROGMEM = R"rawliteral(
                     
                     let badge = document.getElementById('system-status');
                     if (data.is_ap_mode) {
-                        badge.innerText = 'AP Modus Aktiv';
+                        badge.innerText = t('status.apMode');
                         badge.className = 'status-badge status-online';
                         badge.style.backgroundColor = '#0288d1'; // distinct color for AP mode
                         badge.style.color = '#ffffff';
                     } else if (data.wifi_connected) {
-                        badge.innerText = 'WLAN Verbunden';
+                        badge.innerText = t('status.wifiConnected');
                         badge.className = 'status-badge status-online';
                         badge.style.backgroundColor = ''; // reset style in case it was set
                         badge.style.color = '';
                     } else {
-                        badge.innerText = 'WLAN Getrennt';
+                        badge.innerText = t('status.wifiDisconnected');
                         badge.className = 'status-badge status-offline';
                         badge.style.backgroundColor = ''; // reset style in case it was set
                         badge.style.color = '';
@@ -803,7 +905,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 .catch(error => console.error('Error fetching status:', error));
         }
 
-        updateStatus();
+        initializeI18n();
         setInterval(updateStatus, 5000);
     </script>
 </body>
