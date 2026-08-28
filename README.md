@@ -9,8 +9,9 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Prio 1: Home Assistant Support:** Auto-discovery via KNXnet/IP Routing and complete multi-client support.
 *   **High Performance Concurrency:** Supports up to **10 concurrent KNXnet/IP Tunneling connections** (e.g., simultaneous use of ETS, Home Assistant, Node-RED, etc.).
 *   **Tunnel Source-Address Validation:** Each tunnel gets an assigned individual address; frames with a foreign source IA are rewritten before broadcast (KNXnet/IP Core §4.4, matching MDT/Weinzierl/Gira gateway behavior). Stops one tunnel client from impersonating another.
+*   **Optional Wired Ethernet (TUL32):** A W5500 module on the TUL32's FPC header is detected at boot, so one build serves a populated and an unpopulated board. The interface takes the busware MAC burnt into eFuse, and once the cable has a link and a DHCP lease the Wi-Fi radio is parked — the gateway then holds exactly one address on the network. Stored credentials survive, and the radio returns when the cable is pulled. KNXnet/IP routing follows the active interface and re-joins its multicast group on a cable change; the dashboard shows ethernet link, IP and MAC. The TUL (ESP32-C3) has no such header and is built without the ethernet code.
 *   **Hardened Web Surface:** All state-changing HTTP endpoints are cross-origin (CSRF) gated — a request whose `Origin` does not match the `Host` is rejected — and the captive AP is restricted to onboarding only (scan/connect/status). Same-origin browser UI and non-browser clients (curl/scripts) are unaffected.
-*   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP <MAC>`). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard.
+*   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP <MAC>`). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard. A gateway that is already carried by an ethernet cable stays off the air and does not open this AP.
 *   **Web-Based Wi-Fi Setup:** Click the status badge in the web dashboard to open the Wi-Fi configuration modal. Perform a live scan of nearby networks, select your SSID, and enter the password. The gateway will save the credentials and seamlessly reboot into client mode.
 *   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot. First-time provisioning is reliable even while the captive AP is broadcasting — the strongest matching access point is selected without a forced radio channel that would otherwise break the WPA2 handshake in the AP+STA window.
 *   **OTA Firmware Update:** Two paths, both with MD5 verification: (a) **online update** from a signed manifest at [install.busware.de/ip4knx/](https://install.busware.de/ip4knx/) — one click in the dashboard pulls the latest firmware over HTTPS; (b) **manual upload** of any `firmware_*.bin` through the same dashboard.
@@ -18,9 +19,9 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Programming Mode Toggle:** One-click ETS programming-mode activation from the dashboard / `/api/progmode` (no more reaching for the physical button during commissioning).
 *   **NCN5130 Boot Self-Test:** Verifies the SPI/UART link to the transceiver, all power rails (V20V/VDD2/VBUS/VFILT), XTAL, and thermal status on every boot. Visible on the dashboard and in `/api/status`.
 *   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, NCN transceiver state, OTA partition + state, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
-*   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`.
+*   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`. Both interfaces additionally announce a DHCP hostname of the form `tul-<MAC suffix>` — the same suffix the fallback AP carries — so a stick is recognisable in the router's lease list instead of showing up under a generic platform default.
 *   **Hardware Watchdog:** Active Task Watchdog Timer (TWDT) and Wi-Fi connection monitoring for ultimate stability.
-*   **KNX-Stack Robustness:** Inbound KNXnet/IP frames are validated against malformed and truncated cEMI before they reach the TP bus, and the transmit path fails safe under heap/allocation pressure — hardening adopted from upstream OpenKNX robustness work.
+*   **KNX-Stack Robustness:** Inbound KNXnet/IP frames are validated against malformed and truncated cEMI before they reach the TP bus, and the transmit path fails safe under heap/allocation pressure — hardening adopted from upstream OpenKNX robustness work. The management plane is bounded as well: property, memory and function-property services reject short APDUs before any length-derived read, refuse writes that claim more element data than the payload carries, and clamp every response against both its frame buffer and the NVM size.
 *   **Build Versioning:** Git hash and build number displayed in serial output and `/api/status` JSON.
 
 ## 🎛 Supported Hardware
@@ -38,6 +39,7 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Flash:** 4MB
 *   **Target Env:** `tul32_esp32c6`
 *   **Pins:** LED=8, Button=9, RX=5, TX=4 (UART_NUM_1)
+*   **Optional:** FPC header for a W5500 ethernet module (see Features)
 *   **Partition layout:** `partitions_4mb_ota.csv` (otadata + app0 0x10000/0x1F0000 + app1 0x200000/0x1F0000 + coredump). Same layout is used for both ESP32-C3 and ESP32-C6.
 
 ## 🚀 Installation
@@ -54,7 +56,8 @@ The `binaries/` directory is intentionally empty in a fresh checkout — factory
 
 ```bash
 ./scripts/build_factory.sh tul32_esp32c6    # or tul_esp32c3
-esptool.py --chip esp32c6 write_flash 0x0000 binaries/factory_tul32_esp32c6.bin
+esptool --chip esp32c6 write-flash 0x0 binaries/factory_tul32_esp32c6.bin
+# esptool < 5.0 spells this: esptool.py --chip esp32c6 write_flash 0x0 ...
 ```
 
 ### Option C: Build from Source (PlatformIO)
@@ -84,7 +87,7 @@ During the first 120 seconds after powering on, you can also provision Wi-Fi cre
 *   **CLI Script:** Highly useful for automated setups or debugging:
     ```bash
     pip install pyserial
-    python3 scripts/test_improv.py --port /dev/ttyUSB0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
+    python3 scripts/test_improv.py --port /dev/ttyACM0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
     ```
 
 ## 🏠 Connecting FHEM (without knxd)
@@ -108,7 +111,7 @@ Automated verification script that tests the complete deployment workflow:
     --target tul32_esp32c6 \
     --ssid 'MyWiFi' \
     --password 'Secret123' \
-    [--port /dev/ttyUSB0]  # Optional: auto-detected if not specified
+    [--port /dev/ttyACM0]  # Optional: auto-detected if not specified
 ```
 
 The script performs:
