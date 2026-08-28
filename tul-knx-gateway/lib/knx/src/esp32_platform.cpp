@@ -11,12 +11,32 @@
 //     #pragma warn "KNX_SERIAL not defined, using Serial1"
 // #endif
  
-#ifdef KNX_IP_LAN
+#if defined(KNX_IP_LAN)
     #include "ETH.h"
     #define KNX_NETIF ETH
+#elif defined(W5500_ETH)
+    // Optional W5500 add-on (TUL32 FPC header): which interface carries KNX is
+    // a property of the board in front of us, not of the build, so the choice
+    // has to be made per call. The application owns the answer and defines
+    // knxUseEthernet(); this weak default keeps the stack linkable without it.
+    #include <WiFi.h>
+    #include "ETH.h"
+    bool __attribute__((weak)) knxUseEthernet() { return false; }
 #else // KNX_IP_WIFI
     #include <WiFi.h>
     #define KNX_NETIF WiFi
+#endif
+
+#ifdef W5500_ETH
+    #define KNX_IF_LOCALIP()   (knxUseEthernet() ? ETH.localIP()   : WiFi.localIP())
+    #define KNX_IF_NETMASK()   (knxUseEthernet() ? ETH.subnetMask() : WiFi.subnetMask())
+    #define KNX_IF_GATEWAY()   (knxUseEthernet() ? ETH.gatewayIP()  : WiFi.gatewayIP())
+    #define KNX_IF_MAC(a)      (knxUseEthernet() ? (void)ETH.macAddress(a) : (void)WiFi.macAddress(a))
+#else
+    #define KNX_IF_LOCALIP()   KNX_NETIF.localIP()
+    #define KNX_IF_NETMASK()   KNX_NETIF.subnetMask()
+    #define KNX_IF_GATEWAY()   KNX_NETIF.gatewayIP()
+    #define KNX_IF_MAC(a)      KNX_NETIF.macAddress(a)
 #endif
 
 Esp32Platform::Esp32Platform()
@@ -29,22 +49,22 @@ Esp32Platform::Esp32Platform(TPUart::Interface::Abstract* interface) : ArduinoPl
 
 uint32_t Esp32Platform::currentIpAddress()
 {
-    return KNX_NETIF.localIP();
+    return KNX_IF_LOCALIP();
 }
 
 uint32_t Esp32Platform::currentSubnetMask()
 {
-    return KNX_NETIF.subnetMask();
+    return KNX_IF_NETMASK();
 }
 
 uint32_t Esp32Platform::currentDefaultGateway()
 {
-    return KNX_NETIF.gatewayIP();
+    return KNX_IF_GATEWAY();
 }
 
 void Esp32Platform::macAddress(uint8_t * addr)
 {
-    KNX_NETIF.macAddress(addr);
+    KNX_IF_MAC(addr);
 }
 
 uint32_t Esp32Platform::uniqueSerialNumber()
@@ -63,8 +83,11 @@ void Esp32Platform::restart()
 
 void Esp32Platform::setupMultiCast(uint32_t addr, uint16_t port)
 {
-#ifdef KNX_IP_LAN
+#if defined(KNX_IP_LAN)
     esp_netif_t* check = esp_netif_get_handle_from_ifkey("ETH_DEF");
+#elif defined(W5500_ETH)
+    esp_netif_t* check = esp_netif_get_handle_from_ifkey(
+                             knxUseEthernet() ? "ETH_DEF" : "WIFI_STA_DEF");
 #else
     esp_netif_t* check = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
 #endif

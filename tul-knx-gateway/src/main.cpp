@@ -21,6 +21,194 @@
 
 #include <TPUart/Interface/ESP32.h>
 
+#ifdef W5500_ETH
+#include <ETH.h>
+#include <driver/spi_master.h>
+#include <esp_log.h>
+#include <esp_mac.h>
+#include <esp_eth.h>
+#include <esp_efuse.h>
+#include <esp_efuse_table.h>
+
+// === Optional W5500 ethernet (TUL32 FPC add-on) =============================
+// The module is optional, so this is a runtime probe, not a build variant:
+// ETH.begin() reads the W5500 chip version through esp_eth_driver_install and
+// returns false when no chip answers. One binary serves both boards.
+//
+// Netif priority matters here. ESP_NETIF_INHERENT_DEFAULT_WIFI_STA has
+// route_prio 100 and ..._ETH only 50, so with both interfaces up the default
+// netif — and with it the IGMP join behind NetworkUDP::beginMulticast(), which
+// passes imr_interface = INADDR_ANY — would stay on WiFi even with the cable
+// plugged in. Raising ETH above the STA makes the wire win whenever it has a
+// link, and esp_netif falls back to WiFi by itself when it does not.
+#define ETH_ROUTE_PRIO 120
+
+// Boot-time windows for the cable decision. The link wait is paid on every
+// boot of a module-equipped stick with no cable plugged, so keep it short; the
+// DHCP wait only runs once a link is actually there.
+#define ETH_LINK_WAIT_MS 3000
+#define ETH_DHCP_WAIT_MS 8000
+// How long a radio the web UI woke up stays on without a connect following.
+#define WIFI_REPARK_MS   120000
+
+static bool ethPresent = false;    // W5500 answered → driver installed
+
+// Which interface the KNX stack is speaking on. Tracked rather than derived per
+// call so a change can be acted on exactly once.
+enum ActiveIf { IF_NONE, IF_ETH, IF_WIFI };
+static ActiveIf activeIf    = IF_NONE;
+static uint32_t lastIfCheck = 0;
+
+static const char* activeIfName(ActiveIf i) {
+    return i == IF_ETH ? "ethernet" : i == IF_WIFI ? "wifi" : "none";
+}
+
+// True while ethernet is the interface KNX should be speaking on. The KNX
+// platform layer calls this (weak symbol in esp32_platform.cpp) to report the
+// right IP/mask/gateway/MAC in search responses and HPAI structures.
+bool knxUseEthernet() {
+    return ethPresent && ETH.linkUp() && ETH.localIP() != IPAddress((uint32_t)0);
+}
+
+// "Carrying the gateway" means associated AND holding an address — a STA can
+// sit in WL_CONNECTED with 0.0.0.0 after a lost DHCP lease.
+static ActiveIf currentActiveIf() {
+    if (knxUseEthernet()) {
+        return IF_ETH;
+    }
+    if (WiFi.status() == WL_CONNECTED && (uint32_t)WiFi.localIP() != 0) {
+        return IF_WIFI;
+    }
+    return IF_NONE;
+}
+
+// Give the ethernet interface the busware MAC burnt into eFuse CUSTOM_MAC
+// (BLOCK3) during production test, instead of the address ETH.begin() derives
+// from the Espressif base MAC (base+eth_index with the locally-administered bit
+// set — a0:f2:… becomes a2:f2:…). Devices then appear on the wire under the
+// OUI they were sold with, and DHCP reservations survive a firmware change.
+// A board without a burnt CUSTOM_MAC keeps the derived address.
+static bool applyBuswareEthMac() {
+    // Read the 48-bit field straight out of BLOCK3. esp_efuse_mac_get_custom()
+    // is the wrong door on the C6: it hands back the first six bytes of the
+    // EUI-64 form, so a4:50:55:02:00:01 comes out as a4:50:55:ff:fe:02.
+    uint8_t mac[6] = {0};
+    if (esp_efuse_read_field_blob(ESP_EFUSE_USER_DATA_MAC_CUSTOM, mac, 48) != ESP_OK) {
+        return false;
+    }
+    // An unburnt field reads as all-zero; so does a malformed one. Either way
+    // there is no busware identity here, so keep the derived address.
+    bool allZero = true;
+    for (int i = 0; i < 6; i++) {
+        if (mac[i]) { allZero = false; break; }
+    }
+    if (allZero || (mac[0] & 0x01)) {   // no multicast bit in a device MAC
+        return false;
+    }
+    esp_eth_handle_t h = ETH.handle();
+    esp_netif_t* nif = ETH.netif();
+    if (!h || !nif) {
+        return false;
+    }
+    // Both layers have to agree: the MAC driver answers ARP from its own copy,
+    // esp_netif hands its copy to lwIP. Neither accepts the change while the
+    // interface is running.
+    esp_eth_stop(h);
+    bool ok = esp_eth_ioctl(h, ETH_CMD_S_MAC_ADDR, mac) == ESP_OK;
+    ok = (esp_netif_set_mac(nif, mac) == ESP_OK) && ok;
+    esp_eth_start(h);
+    return ok;
+}
+
+static void initEthernet() {
+    // A board without the module is the normal case, not a fault. Muting the
+    // driver tags for the probe keeps three red esp_eth/w5500 chip-ID errors
+    // out of every boot log on the far more common unpopulated board; the
+    // plain-language line below says the same thing without alarming anyone.
+    esp_log_level_set("w5500.mac", ESP_LOG_NONE);
+    esp_log_level_set("esp_eth", ESP_LOG_NONE);
+
+    // SPI2 is the only general-purpose SPI host on the C6; SPI0/1 serve flash.
+    ethPresent = ETH.begin(ETH_PHY_W5500, 1, W5500_CS, W5500_INT, W5500_RST,
+                           SPI2_HOST, W5500_SCLK, W5500_MISO, W5500_MOSI, 20);
+
+    esp_log_level_set("w5500.mac", ESP_LOG_ERROR);
+    esp_log_level_set("esp_eth", ESP_LOG_ERROR);
+
+    if (!ethPresent) {
+        // ETH.begin() has no spi_bus_free() on its error path, so the bus would
+        // stay initialised for a chip that is not there. Hand it back.
+        spi_bus_free(SPI2_HOST);
+        Serial.println("Ethernet: no W5500 on the FPC header - WiFi only");
+        return;
+    }
+    ETH.setRoutePrio(ETH_ROUTE_PRIO);
+    bool ownMac = applyBuswareEthMac();
+    Serial.printf("Ethernet: W5500 detected, MAC %s (%s)\n",
+                  ETH.macAddress().c_str(),
+                  ownMac ? "busware eFuse" : "derived");
+}
+#endif // W5500_ETH
+
+static bool     wifiOffForEth = false; // radio parked because the cable carries us
+static uint32_t wifiResumedAt = 0;     // millis() of the last resume, 0 = none
+
+// Watchdog state lives below loop(); resume needs to prime it.
+extern bool     wasConnected;
+extern uint32_t wifiDownSince;
+extern uint32_t lastReconnectKick;
+
+#include <esp_mac.h>   // esp_read_mac() — needed on every target, not just W5500 ones
+
+// The device's station MAC. WiFi.macAddress() asks the (possibly powered-down)
+// radio and answers 00:00:00:00:00:00 once it is parked; the address itself is
+// a chip property, so read it from efuse and keep reporting it either way.
+static String deviceMacString() {
+    uint8_t m[6] = {0};
+    if (esp_read_mac(m, ESP_MAC_WIFI_STA) != ESP_OK) {
+        return WiFi.macAddress();
+    }
+    char buf[18];
+    snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X",
+             m[0], m[1], m[2], m[3], m[4], m[5]);
+    return String(buf);
+}
+
+// Radio off, credentials kept. The pair to wifiRadioResume().
+static void wifiRadioPark(const char* why) {
+    if (wifiOffForEth) return;
+    Serial.printf("WiFi: radio off (%s)\n", why);
+    WiFi.disconnect(true /*wifioff*/, false /*keep stored credentials*/);
+    wifiOffForEth = true;
+    wifiResumedAt = 0;
+}
+
+// Bring the radio back up after the cable was the only interface. Used when
+// the link drops and when the web UI needs to scan or re-provision WiFi.
+//
+// autoConnect=false powers the radio without starting a connection. A caller
+// that is about to call WiFi.begin(ssid, pass) itself MUST use it: begin()
+// here would leave the STA in "connecting", and esp_wifi_set_config then
+// refuses the new credentials ("sta is connecting, cannot set config") — the
+// web UI would report success and reboot into the old network.
+static void wifiRadioResume(const char* why, bool autoConnect = true) {
+    if (!wifiOffForEth) return;
+    wifiOffForEth = false;
+    wifiResumedAt = millis();
+    Serial.printf("WiFi: radio back on (%s)\n", why);
+    // Prime the watchdog to "down, just started": the first sample then logs
+    // the up-transition instead of a spurious "link down" warning.
+    wasConnected      = false;
+    wifiDownSince     = 0;
+    lastReconnectKick = 0;
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(WIFI_PS_NONE);   // C6 rule: before every begin()
+    WiFi.setAutoReconnect(true);
+    if (autoConnect) {
+        WiFi.begin();              // stored credentials, if any
+    }
+}
+
 AsyncWebServer server(80);
 bool improvConnected = false;
 #ifndef DISABLE_IMPROV
@@ -52,6 +240,11 @@ bool pendingReboot = false;
 uint32_t rebootTime = 0;
 uint32_t buttonPressStart = 0;
 bool buttonState = HIGH;
+
+// Prog-button debounce. 30 ms is far above any electrical disturbance on the
+// shared RXD0 line and far below a human press.
+#define BTN_DEBOUNCE_MS   30UL
+#define BTN_PRESS_MIN_MS  50UL
 DNSServer dnsServer;
 const byte DNS_PORT = 53;
 
@@ -257,6 +450,9 @@ static bool hostAllowed(AsyncWebServerRequest *request) {
     if (h.length() == 0) return true;
     if (h == "tul.local" || h == "tul") return true;
     if (h == WiFi.localIP().toString()) return true;
+#ifdef W5500_ETH
+    if (ethPresent && h == ETH.localIP().toString()) return true;
+#endif
     if (isApMode && h == WiFi.softAPIP().toString()) return true;
     return false;
 }
@@ -514,6 +710,48 @@ static String updateStatusJson() {
     return j;
 }
 
+// Debounced prog-button service, shared by the boot wait loop and loop().
+// Returns the level to use for long-press (AP) logic and handles the short
+// press itself — see setup() for why this is polled instead of interrupt-driven.
+// Callers must assign the returned value to buttonState at the end of their
+// iteration, as the existing AP logic already does.
+static bool serviceProgButton() {
+    static bool     raw      = HIGH;   // last raw sample
+    static uint32_t rawSince = 0;      // when the raw level last changed
+    static uint32_t rejected = 0;      // flickers that never stabilised
+    static uint32_t reportAt = 0;
+
+    bool now = digitalRead(KNX_BUTTON);
+    if (now != raw) {
+        raw = now;
+        rawSince = millis();
+        if (now != buttonState) rejected++;
+    }
+    // Report a noisy line instead of silently filtering it. On a stick whose
+    // RXD0 is quiet this never prints.
+    if (rejected > 0 && millis() - reportAt > 60000) {
+        reportAt = millis();
+        Serial.printf("Button: %lu unstable edges on GPIO9 in the last minute (ignored)\n",
+                      (unsigned long)rejected);
+        rejected = 0;
+    }
+
+    bool level = buttonState;
+    if (raw != buttonState && millis() - rawSince >= BTN_DEBOUNCE_MS) {
+        level = raw;
+    }
+    if (level == HIGH && buttonState == LOW) {
+        // Released. A short, clean press is the programming-mode toggle; long
+        // presses belong to the AP logic and must not also toggle.
+        uint32_t held = millis() - buttonPressStart;
+        if (held >= BTN_PRESS_MIN_MS && held < 2000) {
+            Serial.println("Button: short press - toggling KNX programming mode");
+            knx.toggleProgMode();
+        }
+    }
+    return level;
+}
+
 void setup() {
     // Bus-powered TULX32 hat <40 mA Bus-Strom-Budget (R6=10kΩ FANIN auf
     // NCN5130). 80 MHz CPU ist Kompromiss: 50% Strom-Reduktion vs 160 MHz
@@ -586,6 +824,12 @@ void setup() {
     Serial.println("Cap charge wait: 1500ms");
     delay(1500);
 
+#ifdef W5500_ETH
+    // Probe before WiFi: a cabled TUL32 then already has its link (and its
+    // route priority) in place when the KNX stack joins the routing group.
+    initEthernet();
+#endif
+
     // === WiFi-Init mit Markern + TX-Power-Reduktion VOR mode() ===
     // Bei bus-powered Setup (V20 → DC1 → 3.3V, 40mA Bus-Limit) ist der
     // RF-Cal-Burst beim WiFi-Hardware-Init kritisch. setTxPower() vor
@@ -638,7 +882,43 @@ void setup() {
 
     const uint32_t improvWindowMs = 120000;  // 120 seconds
 
-    if (!hasCredentials) {
+    bool ethCarries = false;
+#ifdef W5500_ETH
+    // Decide before touching the radio, or the stick associates first and gets
+    // its WiFi taken away a moment later. The W5500 does not report a link the
+    // instant the driver is up, so give it a window: a short one for the PHY,
+    // and only if a cable is actually there the longer one for DHCP.
+    if (ethPresent) {
+        uint32_t t0 = millis();
+        while (!ETH.linkUp() && millis() - t0 < ETH_LINK_WAIT_MS) {
+            delay(50);
+        }
+        if (ETH.linkUp()) {
+            Serial.printf("Ethernet: link after %lu ms, waiting for DHCP\n",
+                          (unsigned long)(millis() - t0));
+            while (!knxUseEthernet() && millis() - t0 < ETH_LINK_WAIT_MS + ETH_DHCP_WAIT_MS) {
+                delay(50);
+            }
+            Serial.printf("Ethernet: %s after %lu ms\n",
+                          knxUseEthernet() ? "ready" : "no IPv4",
+                          (unsigned long)(millis() - t0));
+        }
+    }
+    ethCarries = knxUseEthernet();
+#endif
+
+    if (ethCarries) {
+        // Cable wins, so the radio is parked: two addresses in one subnet make
+        // the source address of KNX's INADDR_ANY socket a matter of lwIP netif
+        // order rather than of route priority, and a device that is reachable
+        // over the wire has no business opening an unprotected onboarding AP.
+        // Credentials stay in NVS; wifiRadioResume() brings it back.
+#ifdef W5500_ETH
+        Serial.printf("Ethernet carries the gateway (%s)\n",
+                      ETH.localIP().toString().c_str());
+#endif
+        wifiRadioPark("cable carries the gateway at boot");
+    } else if (!hasCredentials) {
         Serial.println("No WiFi credentials stored - Starting AP immediately!");
         // AP_STA so the captive portal can scan() while broadcasting.
         WiFi.mode(WIFI_AP_STA);
@@ -673,6 +953,17 @@ void setup() {
     
     knx.ledPin(KNX_LED);
     knx.buttonPin(KNX_BUTTON);
+
+    // The prog button is NOT a plain button on this hardware: GPIO9 sits on
+    // RXD0 through 1 kΩ so a host can hold it low at power-on to enter the
+    // bootloader. The stack would attachInterrupt(CHANGE) and decide on edge
+    // *spacing* alone — buttonEvent() never reads the level, so any two edges
+    // 50–500 ms apart toggle programming mode. On a C6 whose console runs over
+    // USB-CDC that line is free to pick up noise, and the result is a prog mode
+    // that flips several times a second. Poll a debounced level in loop()
+    // instead; pinMode is ours to set once the stack skips its own setup.
+    knx.setButtonISRFunction(nullptr);
+    pinMode(KNX_BUTTON, INPUT_PULLUP);
 
     // Initialize EEPROM and read config
     knx.readMemory();
@@ -743,10 +1034,15 @@ void setup() {
             auto settle = [&]() { for (int i = 0; i < 100; i++) { knx.loop(); delay(20); } };
             Serial.printf("as-found        : VDD2=%d V20V=%d VFILT=%d VBUS=%d XTAL=%d mode=%s\n",
                           sys.vdd2(), sys.v20v(), sys.vfilt(), sys.vbus(), sys.xtal(), sys.modeString());
+            // powerControl() is deprecated because it does not work — probing
+            // exactly that is the point of this harness, so silence the warning.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
             dl->powerControl(false);          // ACR0 without DC2EN
             settle();
             Serial.printf("after DC2EN=0   : VDD2=%d\n", sys.vdd2());
             dl->powerControl(true);           // ACR0 with DC2EN|V20VEN|XCLKEN|V20VCLIMIT
+#pragma GCC diagnostic pop
             settle();
             Serial.printf("after DC2EN=1   : VDD2=%d\n", sys.vdd2());
         } else {
@@ -791,6 +1087,9 @@ void setup() {
     // kicks a fresh scan; plain GET polls. Returns {"scanning":true} while in
     // progress, else a JSON array of {ssid,rssi}. SSID is JSON-escaped (M1).
     server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *request){
+        // Reachable over the cable with the radio parked: switch it back on so
+        // the user can still pick a network from the web UI.
+        wifiRadioResume("web UI requested a scan");
         int n = WiFi.scanComplete();
         if (n == WIFI_SCAN_RUNNING) {
             request->send(200, "application/json", "{\"scanning\":true}");
@@ -813,6 +1112,8 @@ void setup() {
     });
 
     server.on("/api/wifi/connect", HTTP_POST, [](AsyncWebServerRequest *request){
+        // No auto-connect: this handler sets the new credentials itself.
+        wifiRadioResume("web UI is (re)configuring WiFi", false);
         // Onboarding route, but only exempt from the AP-mode lock when connect is
         // authorized (onboarding / button AP). In the involuntary fallback AP the
         // lock stays on so an RF-range attacker can't relocate the device; a
@@ -1004,9 +1305,20 @@ void setup() {
         } else {
             json += "\"ssid\":\"" + jsonEscape(WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("N/A")) + "\",";
             json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-            json += "\"mac\":\"" + WiFi.macAddress() + "\",";
+            json += "\"mac\":\"" + deviceMacString() + "\",";
             json += "\"wifi_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
         }
+#ifdef W5500_ETH
+        json += "\"wifi_off_for_eth\":" + String(wifiOffForEth ? "true" : "false") + ",";
+        json += "\"eth\":{";
+        json += "\"present\":" + String(ethPresent ? "true" : "false") + ",";
+        json += "\"link\":" + String(ethPresent && ETH.linkUp() ? "true" : "false") + ",";
+        json += "\"active\":" + String(knxUseEthernet() ? "true" : "false") + ",";
+        json += "\"ip\":\"" + String(ethPresent ? ETH.localIP().toString() : String("0.0.0.0")) + "\",";
+        json += "\"mac\":\"" + String(ethPresent ? ETH.macAddress() : String("")) + "\",";
+        json += "\"speed\":" + String(ethPresent && ETH.linkUp() ? ETH.linkSpeed() : 0);
+        json += "},";
+#endif
         json += "\"knx_configured\":" + String(knx.configured() ? "true" : "false") + ",";
         json += "\"prog_mode\":" + String(knx.progMode() ? "true" : "false") + ",";
 
@@ -1109,8 +1421,10 @@ void setup() {
         Serial.println("mDNS responder started: http://tul.local");
     }
 
-    // Wait for connection OR wait for Improv/Button
-    while (WiFi.status() != WL_CONNECTED && (millis() - bootTime < improvWindowMs)) {
+    // Wait for connection OR wait for Improv/Button. With the cable up there is
+    // nothing to wait for — Improv keeps being served from loop().
+    while (!wifiOffForEth && WiFi.status() != WL_CONNECTED &&
+           (millis() - bootTime < improvWindowMs)) {
 #ifndef DISABLE_IMPROV
         improvSerial.handleSerial();
 #endif
@@ -1123,7 +1437,7 @@ void setup() {
             dnsServer.processNextRequest();
         }
 
-        bool currentButtonState = digitalRead(KNX_BUTTON);
+        bool currentButtonState = serviceProgButton();
         if (currentButtonState == LOW && buttonState == HIGH) {
             buttonPressStart = millis();
         } else if (currentButtonState == LOW && buttonState == LOW) {
@@ -1153,7 +1467,16 @@ void setup() {
         Serial.println("[Info] WiFi configured via Improv");
     }
 
-    if (WiFi.status() == WL_CONNECTED) {
+#ifdef W5500_ETH
+    // knx.start() already joined the routing group on the right interface, so
+    // record where we are instead of letting loop() see a change and rejoin for
+    // nothing.
+    activeIf = currentActiveIf();
+#endif
+
+    if (wifiOffForEth) {
+        digitalWrite(KNX_LED, LOW);   // LED ON: the gateway is up, over the wire
+    } else if (WiFi.status() == WL_CONNECTED) {
         Serial.println("WiFi connected!");
         Serial.print("IP Address: ");
         Serial.println(WiFi.localIP());
@@ -1165,6 +1488,14 @@ void setup() {
         }
         digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
     } else {
+#ifdef W5500_ETH
+        // A gateway that is reachable over the cable needs no recovery AP;
+        // opening one would only put an unprotected SSID on the air.
+        if (!isApMode && knxUseEthernet()) {
+            Serial.print("WiFi not connected, but ethernet is up: ");
+            Serial.println(ETH.localIP());
+        } else
+#endif
         if (!isApMode) {
             Serial.println("[Warning] WiFi not connected - Starting Fallback Access Point!");
             WiFi.mode(WIFI_AP_STA);
@@ -1181,6 +1512,20 @@ void setup() {
         digitalWrite(KNX_LED, LOW); // LED ON anyway
     }
 }
+
+#ifdef W5500_ETH
+// Re-arm the KNXnet/IP routing group on whatever interface carries us now.
+// enabled(false/true) is closeMultiCast() + setupMultiCast() on the IP data
+// link layer; only call it when an interface is actually up (see loop()).
+static void knxRejoinRouting(const char* why) {
+    auto ipDl = ((Bau091A&)knx.bau()).getPrimaryDataLinkLayer();
+    if (ipDl && ipDl->enabled()) {
+        Serial.printf("KNX: rejoining routing group on %s\n", why);
+        ipDl->enabled(false);
+        ipDl->enabled(true);
+    }
+}
+#endif
 
 uint32_t lastWifiCheck = 0;
 bool wasConnected = true;
@@ -1236,6 +1581,57 @@ void loop() {
         }
     }
 
+#ifdef W5500_ETH
+    // Which interface carries KNX changes under us when the cable is plugged or
+    // pulled, and the routing multicast group is joined on exactly one netif —
+    // so the join has to follow. It may only follow to an interface that exists
+    // AND has an address: setupMultiCast() calls fatalError() (an endless blink
+    // loop) on a missing netif, and a parked radio has no STA netif at all.
+    if (millis() - lastIfCheck > 1000) {
+        lastIfCheck = millis();
+        ActiveIf now = currentActiveIf();
+        if (now != activeIf) {
+            Serial.printf("Interface: %s -> %s\n", activeIfName(activeIf), activeIfName(now));
+            activeIf = now;
+            if (now == IF_ETH) {
+                if (isApMode && apModeIsFallback) {
+                    // The fallback AP exists only because no network was
+                    // reachable. One is now — close it, same as the STA
+                    // re-association exit below does.
+                    Serial.println("Fallback-AP: ethernet carries the gateway, leaving AP mode");
+                    WiFi.softAPdisconnect(true);
+                    WiFi.mode(WIFI_STA);
+                    dnsServer.stop();
+                    isApMode = false;
+                    apModeIsFallback = false;
+                    digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
+                }
+                // A deliberate AP (onboarding, button) is left alone —
+                // somebody may be using it right now.
+                if (!isApMode && WiFi.getMode() != WIFI_OFF) {
+                    wifiRadioPark("ethernet took over");
+                }
+                knxRejoinRouting("ethernet");
+            } else if (now == IF_WIFI) {
+                knxRejoinRouting("wifi");
+            } else {
+                // Nothing carries the gateway any more (cable pulled). Get the
+                // radio back; the rejoin follows once it has an address, on the
+                // next transition through this same check.
+                wifiRadioResume("ethernet link lost");
+            }
+        } else if (now == IF_ETH && wifiResumedAt && !isApMode && !pendingReboot &&
+                   WiFi.getMode() != WIFI_OFF &&
+                   WiFi.scanComplete() != WIFI_SCAN_RUNNING &&
+                   millis() - wifiResumedAt > WIFI_REPARK_MS) {
+            // The web UI woke the radio for a scan but nobody followed up with
+            // a connect (that path reboots). Back to cable-only, or the two
+            // interfaces share the subnet again for the rest of the uptime.
+            wifiRadioPark("web UI finished with the radio");
+        }
+    }
+#endif
+
     // Track the NCN link so /api/status reports what is true now, not what was
     // true at boot. Without this a stick that started with no bus attached kept
     // reporting the boot FAIL after the stack had already reconnected itself.
@@ -1270,7 +1666,7 @@ void loop() {
 #endif
 
     // Button long-press logic for AP mode
-    bool currentButtonState = digitalRead(KNX_BUTTON);
+    bool currentButtonState = serviceProgButton();
     if (currentButtonState == LOW && buttonState == HIGH) {
         buttonPressStart = millis();
     } else if (currentButtonState == LOW && buttonState == LOW) {
@@ -1348,7 +1744,7 @@ void loop() {
     // can even report WL_CONNECTED while holding 0.0.0.0). We treat "associated
     // AND has an IP" as the real up-state and force re-association + DHCP once the
     // grace window passes — otherwise the gateway goes silent until a power-cycle.
-    if (millis() - lastWifiCheck > 5000) {
+    if (!wifiOffForEth && millis() - lastWifiCheck > 5000) {
         lastWifiCheck = millis();
         bool associated = (WiFi.status() == WL_CONNECTED);
         bool hasIp      = ((uint32_t)WiFi.localIP() != 0);

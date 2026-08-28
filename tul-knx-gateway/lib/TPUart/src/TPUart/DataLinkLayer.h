@@ -153,6 +153,12 @@ namespace TPUart
         Receiver &getReceiver();
         Transmitter &getTransmitter();
 
+        // BROKEN on the NCN5130 boards in this project — see the measurements in
+        // DataLinkLayer.cpp before you build anything on top of it. Kept (not
+        // deleted) because this stack is vendored from upstream and the finding
+        // is specific to the hardware measured here, not proven in general.
+        [[deprecated("powerControl() had no measurable effect on our NCN5130 hardware "
+                     "(ACR0 write ignored) — see the comment above its implementation")]]
         bool powerControl(bool state);
         bool stopMode(bool state);
         bool busyMode(bool state);

@@ -141,7 +141,12 @@ DptMedium TpUartDataLinkLayer::mediumType() const
 
 void TpUartDataLinkLayer::powerControl(bool state)
 {
+    // Deliberate forward to a deprecated call — this wrapper is the deprecated
+    // API, so the warning belongs at its callers, not here.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     _tpuart.powerControl(state);
+#pragma GCC diagnostic pop
 }
 
 TpUartDataLinkLayer::TpUartDataLinkLayer(DeviceObject &devObj,

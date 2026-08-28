@@ -596,6 +596,29 @@ namespace TPUart
      * This function allows controlling the power supply (VCC2) of the NCN5120.
      * Note that the setting survives a restart of the host system and a reset of the BCU.
      * Anyone using this function should therefore re-enable the power supply on boot of the host system.
+     *
+     * BROKEN AS MEASURED — do not build on this. Marked [[deprecated]] in the
+     * header rather than deleted: this stack is vendored from upstream, and the
+     * finding below is what we measured on our own boards, not a proof that the
+     * service is broken in general.
+     *
+     * Measured 2026-08-17 on TUL (ESP32-C3) and TUL2 (ESP32-C6), both NCN5130,
+     * both with live bus power: calling this with state=false writes ACR0
+     * without DC2EN *and* without V20VEN, yet neither VDD2 nor V20V ever
+     * dropped in the system state — which the stack re-reads every second via
+     * processRequestState(). Reproduced twice, including once with VDD2 high as
+     * the starting point, so it is not a case of "already off".
+     *
+     * The frame itself matches the datasheet (p.39 fig.42: U_IntRegWr.req is
+     * 0b001010aa followed by the data byte; ACR0 is aa=01, i.e. 0x29), so the
+     * encoding is not the problem. Unverified suspicion: these bytes go out via
+     * _interface->write() directly, bypassing the transmitter queue, so they can
+     * land between the bytes of a frame that is being sent. Confirming that needs
+     * a capture of the TX line, which the closed stick does not expose.
+     *
+     * Nothing in this project calls it; the KNX stack never touches ACR0 either
+     * (applyConfiguration() writes CRC/address/repetition only). Whoever wants
+     * DC2 or V20V control has to settle the above first.
      */
     bool DataLinkLayer::powerControl(bool state)
     {

@@ -173,6 +173,9 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <div class="info-row"><span>WiFi SSID:</span> <span id="wifi_ssid">-</span></div>
                     <div class="info-row"><span>IP Adresse:</span> <span id="ip_addr">-</span></div>
                     <div class="info-row"><span>MAC Adresse:</span> <span id="mac_addr">-</span></div>
+                    <div class="info-row" id="eth_row" style="display:none;"><span>Ethernet:</span> <span id="eth_state">-</span></div>
+                    <div class="info-row" id="eth_ip_row" style="display:none;"><span>Ethernet IP:</span> <span id="eth_ip">-</span></div>
+                    <div class="info-row" id="eth_mac_row" style="display:none;"><span>Ethernet MAC:</span> <span id="eth_mac">-</span></div>
                 </div>
             </section>
 
@@ -656,9 +659,36 @@ const char index_html[] PROGMEM = R"rawliteral(
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('uptime').innerText = data.uptime;
-                    document.getElementById('wifi_ssid').innerText = data.ssid;
-                    document.getElementById('ip_addr').innerText = data.ip;
+                    // A parked radio would otherwise read as "N/A / 0.0.0.0",
+                    // which looks like a fault instead of a deliberate state.
+                    if (data.wifi_off_for_eth) {
+                        document.getElementById('wifi_ssid').innerText = 'aus (Ethernet aktiv)';
+                        document.getElementById('ip_addr').innerText = '—';
+                    } else {
+                        document.getElementById('wifi_ssid').innerText = data.ssid;
+                        document.getElementById('ip_addr').innerText = data.ip;
+                    }
                     document.getElementById('mac_addr').innerText = data.mac;
+
+                    // Ethernet rows exist only on hardware that reports an eth
+                    // block (TUL32 with the W5500 FPC module); stay hidden
+                    // otherwise so a WiFi-only stick shows no dead entries.
+                    var ethRow = document.getElementById('eth_row');
+                    if (data.eth && data.eth.present) {
+                        ethRow.style.display = '';
+                        document.getElementById('eth_ip_row').style.display = data.eth.link ? '' : 'none';
+                        document.getElementById('eth_mac_row').style.display = '';
+                        document.getElementById('eth_state').innerText =
+                            !data.eth.link ? 'Kein Kabel'
+                            : (data.eth.active ? 'Verbunden, aktiv für KNX' : 'Verbunden')
+                              + (data.eth.speed ? ' (' + data.eth.speed + ' Mbit/s)' : '');
+                        document.getElementById('eth_ip').innerText = data.eth.ip;
+                        document.getElementById('eth_mac').innerText = data.eth.mac;
+                    } else {
+                        ethRow.style.display = 'none';
+                        document.getElementById('eth_ip_row').style.display = 'none';
+                        document.getElementById('eth_mac_row').style.display = 'none';
+                    }
                     
                     document.getElementById('knx_configured').innerText = data.knx_configured ? 'Ja' : 'Nein';
                     document.getElementById('knx_pa').innerText = data.knx_pa;
