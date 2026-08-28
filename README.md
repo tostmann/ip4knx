@@ -1,6 +1,6 @@
 # ip4knx - Universal KNXnet/IP Gateway
 
-Custom firmware to turn the **Busware TUL (ESP32-C3)** and **TUL32 (ESP32-C6)** USB sticks into a fully featured KNXnet/IP Routing and Tunneling Gateway.
+Custom firmware to turn the **[Busware TUL](https://shop.busware.de/tul) (ESP32-C3)** and **TUL32 (ESP32-C6)** USB sticks into a fully featured KNXnet/IP Routing and Tunneling Gateway.
 
 Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly optimized and patched for the specific hardware requirements of the NCN5130 transceiver and modern ESP32 Arduino Core 3.x frameworks.
 
@@ -27,6 +27,7 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 ## 🎛 Supported Hardware
 
 ### Busware TUL (ESP32-C3)
+*   **Shop:** [shop.busware.de/tul](https://shop.busware.de/tul)
 *   **MCU:** ESP32-C3
 *   **Transceiver:** NCN5130 (Galvanically isolated via ISO7221)
 *   **Flash:** 4MB
