@@ -131,7 +131,7 @@ namespace TPUart
         /*
          * Include the all metadata at the beginning of the frame and the checksum at the end.
          */
-        char metadataSize()
+        unsigned char metadataSize()
         {
             return isExtended() ? 9 : 8;
         }
@@ -179,9 +179,9 @@ namespace TPUart
             return isExtended() ? (_data[2] << 8) + _data[3] : (_data[1] << 8) + _data[2];
         }
 
-        char apduSize()
+        unsigned char apduSize()
         {
-            return isExtended() ? _data[6] : _data[5] & 0b1111;
+            return isExtended() ? (unsigned char)_data[6] : (unsigned char)(_data[5] & 0x0F);
         }
 
         void resetFlags()

@@ -21,6 +21,7 @@ namespace TPUart
         _cachedAcknowledge = 0;
         _state = TX_IDLE;
         _transmitPos = 0;
+        _transmitOffset = 0;
         _time = 0;
         _maxQueueSize = MAX_QUEUE_SIZE;
     }
@@ -76,6 +77,7 @@ namespace TPUart
             delete _frame;
             _frame = nullptr;
             _transmitPos = 0;
+            _transmitOffset = 0;
         }
 
         _frame = _queue.front();
@@ -138,15 +140,17 @@ namespace TPUart
         //     return;
         // }
 
-        if (_transmitPos == 0) {
-             Serial.println(">>> TPUART: Transmitting frame to KNX Bus!");
-        }
         // _dll.printMessage("Transmitting %u of %u", _transmitPos, size);
         const bool last = _transmitPos == (size - 1);
         const unsigned char offset = (_transmitPos >> 6);
         const unsigned char position = (_transmitPos & 0x3F);
 
-        if (offset) _dll._interface->write(U_L_DATA_OFFSET_REQ | offset);
+        // The BCU keeps the offset until it is changed, so resend it only when it changes.
+        if (offset != _transmitOffset)
+        {
+            _dll._interface->write(U_L_DATA_OFFSET_REQ | offset);
+            _transmitOffset = offset;
+        }
 
         if (last) // Last byte (Checksum) - the transmit
         {
@@ -235,6 +239,7 @@ namespace TPUart
             delete _frame;
             _frame = nullptr;
             _transmitPos = 0;
+            _transmitOffset = 0;
         }
 
         _state = TX_IDLE;

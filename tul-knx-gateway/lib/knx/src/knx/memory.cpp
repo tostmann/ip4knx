@@ -302,6 +302,11 @@ void Memory::freeMemory(uint8_t* ptr)
 
 void Memory::writeMemory(uint32_t relativeAddress, size_t size, uint8_t* data)
 {
+    // EC: bounds-check against the NVM size (wrap-safe) -> a management write (Memory/User/Ext-MemoryWrite),
+    // now reachable over the IP tunnel, must never write outside NVM (flash corruption / eeprom-buffer OOB).
+    const size_t nvmSize = _platform.getNonVolatileMemorySize();
+    if (size > nvmSize || relativeAddress > nvmSize - size)
+        return;
     if(_saveTimeout != 0)
     {
         _saveTimeout = millis();
@@ -313,6 +318,10 @@ void Memory::writeMemory(uint32_t relativeAddress, size_t size, uint8_t* data)
 
 void Memory::readMemory(uint32_t relativeAddress, size_t size, uint8_t* data)
 {
+    // EC: same wrap-safe bounds check on the read side (no OOB read of NVM).
+    const size_t nvmSize = _platform.getNonVolatileMemorySize();
+    if (size > nvmSize || relativeAddress > nvmSize - size)
+        return;
     _platform.readNonVolatileMemory(relativeAddress, data, size);
 }
 
@@ -320,6 +329,16 @@ void Memory::readMemory(uint32_t relativeAddress, size_t size, uint8_t* data)
 uint8_t* Memory::toAbsolute(uint32_t relativeAddress)
 {
     return _platform.getNonVolatileMemoryStart() + (ptrdiff_t)relativeAddress;
+}
+
+uint8_t* Memory::toAbsoluteChecked(uint32_t relativeAddress, size_t size)
+{
+    // Wrap-safe NVM bound (same as read/writeMemory): reject an out-of-range range so a management
+    // memory-read cannot memcpy past the NVM buffer (OOB read / info-leak). Returns nullptr on reject.
+    const size_t nvmSize = _platform.getNonVolatileMemorySize();
+    if (size > nvmSize || relativeAddress > nvmSize - size)
+        return nullptr;
+    return toAbsolute(relativeAddress);
 }
 
 

@@ -399,6 +399,11 @@ namespace TPUart
         printMessage("Reset received");
         _uReset = false;
 
+        // Deferred half of upstream 18d8655: the transceiver reset invalidated
+        // whatever we had in flight, so drop it before the next frame is picked.
+        // Main-loop context, so this is safe against processQueue().
+        _transmitter.reset();
+
         applyConfiguration();
         requestState();
     }
@@ -840,6 +845,13 @@ namespace TPUart
         _uReset = true;
         _modeExtendedCRC = false;
         _modeAutoAcknowlage = false;
+        // Upstream 18d8655 resets the transmitter right here. On ESP32 this
+        // function runs in the UART RX task (Interface/ESP32.cpp registers
+        // processReceviedByte as a callback), while processQueue() mutates
+        // _queue/_frame from the main loop WITHOUT taking txLock — clearing the
+        // queue from here would race it into a use-after-free. The reset is
+        // therefore deferred to handleReset(), which the main loop runs from
+        // process() before the next processQueue().
         setBCUState(BCU_CONNECTED);
     }
 

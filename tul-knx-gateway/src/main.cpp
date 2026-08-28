@@ -21,6 +21,30 @@
 
 #include <TPUart/Interface/ESP32.h>
 
+#include <esp_mac.h>   // esp_read_mac() — every target, not just the W5500 ones
+
+// One DHCP identity for the whole device. Without this a stick shows up in the
+// router's lease list under the platform default: the Arduino ETH class sets no
+// hostname at all, so the ethernet netif keeps lwIP's "espressif", and WiFi
+// reports "esp32c6-…". The suffix is the one the fallback AP already uses
+// ("TUL AP D501"), so the same stick is recognisable on the wire, over WiFi and
+// in the AP list.
+static const char* deviceHostname() {
+    static char name[16] = {0};
+    if (name[0] == 0) {
+        uint8_t m[6] = {0};
+        // ESP_MAC_WIFI_SOFTAP is what the AP name is built from (base MAC + 1).
+        // Not esp_efuse_mac_get_default(): on the C6 that hands back the middle
+        // of the EUI-64 form.
+        if (esp_read_mac(m, ESP_MAC_WIFI_SOFTAP) == ESP_OK) {
+            snprintf(name, sizeof(name), "tul-%02x%02x", m[4], m[5]);
+        } else {
+            snprintf(name, sizeof(name), "tul");
+        }
+    }
+    return name;
+}
+
 #ifdef W5500_ETH
 #include <ETH.h>
 #include <driver/spi_master.h>
@@ -142,6 +166,10 @@ static void initEthernet() {
         Serial.println("Ethernet: no W5500 on the FPC header - WiFi only");
         return;
     }
+    // The Arduino ETH class never sets one, so without this the lease shows
+    // lwIP's "espressif". Set before the link comes up, i.e. before the first
+    // DHCP DISCOVER goes out.
+    ETH.setHostname(deviceHostname());
     ETH.setRoutePrio(ETH_ROUTE_PRIO);
     bool ownMac = applyBuswareEthMac();
     Serial.printf("Ethernet: W5500 detected, MAC %s (%s)\n",
@@ -845,6 +873,9 @@ void setup() {
     delay(50);
     WiFi.setTxPower(WIFI_POWER_8_5dBm);
 
+    // Global default for every netif created from here on; the STA netif reads
+    // it when WiFi.mode() creates it, so this has to come first.
+    WiFi.setHostname(deviceHostname());
     Serial.println("[C] WiFi.mode(WIFI_STA) — RF init, biggest burst");
     Serial.flush();
     delay(200);

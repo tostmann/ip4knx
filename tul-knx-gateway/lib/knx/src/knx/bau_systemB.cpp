@@ -141,7 +141,9 @@ void BauSystemB::memoryRoutingTableReadIndication(Priority priority, HopCountTyp
 }
 void BauSystemB::memoryRoutingTableReadIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t number, uint16_t memoryAddress)
 {
-    memoryRoutingTableReadIndication(priority, hopType, asap, secCtrl, number, memoryAddress, _memory.toAbsolute(memoryAddress));
+    uint8_t* p = _memory.toAbsoluteChecked(memoryAddress, number);
+    if (p == nullptr) number = 0; // OOB read guard: keep the response within NVM
+    memoryRoutingTableReadIndication(priority, hopType, asap, secCtrl, number, memoryAddress, p);
 }
 
 void BauSystemB::memoryRoutingTableWriteIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t number, uint16_t memoryAddress, uint8_t *data)
@@ -174,8 +176,9 @@ void BauSystemB::memoryReadIndication(Priority priority, HopCountType hopType, u
 void BauSystemB::memoryReadIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t number,
     uint16_t memoryAddress)
 {
-    applicationLayer().memoryReadResponse(AckRequested, priority, hopType, asap, secCtrl, number, memoryAddress,
-        _memory.toAbsolute(memoryAddress));
+    uint8_t* p = _memory.toAbsoluteChecked(memoryAddress, number);
+    if (p == nullptr) number = 0; // OOB read guard: keep the response within NVM
+    applicationLayer().memoryReadResponse(AckRequested, priority, hopType, asap, secCtrl, number, memoryAddress, p);
 }
 
 void BauSystemB::memoryExtWriteIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t number, uint32_t memoryAddress, uint8_t * data)
@@ -187,7 +190,10 @@ void BauSystemB::memoryExtWriteIndication(Priority priority, HopCountType hopTyp
 
 void BauSystemB::memoryExtReadIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t number, uint32_t memoryAddress)
 {
-    applicationLayer().memoryExtReadResponse(AckRequested, priority, hopType, asap, secCtrl, ReturnCodes::Success, number, memoryAddress, _memory.toAbsolute(memoryAddress));
+    uint8_t* p = _memory.toAbsoluteChecked(memoryAddress, number);
+    ReturnCodes code = (p != nullptr) ? ReturnCodes::Success : ReturnCodes::AddressVoid; // OOB read -> AddressVoid, no data
+    if (p == nullptr) number = 0;
+    applicationLayer().memoryExtReadResponse(AckRequested, priority, hopType, asap, secCtrl, code, number, memoryAddress, p);
 }
 
 void BauSystemB::doMasterReset(EraseCode eraseCode, uint8_t channel)
@@ -231,8 +237,9 @@ void BauSystemB::authorizeIndication(Priority priority, HopCountType hopType, ui
 
 void BauSystemB::userMemoryReadIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t number, uint32_t memoryAddress)
 {
-    applicationLayer().userMemoryReadResponse(AckRequested, priority, hopType, asap, secCtrl, number, memoryAddress,
-        _memory.toAbsolute(memoryAddress));
+    uint8_t* p = _memory.toAbsoluteChecked(memoryAddress, number);
+    if (p == nullptr) number = 0; // OOB read guard: keep the response within NVM
+    applicationLayer().userMemoryReadResponse(AckRequested, priority, hopType, asap, secCtrl, number, memoryAddress, p);
 }
 
 void BauSystemB::userMemoryWriteIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t number, uint32_t memoryAddress, uint8_t* data)
@@ -282,7 +289,9 @@ void BauSystemB::propertyExtDescriptionReadIndication(Priority priority, HopCoun
     if (obj)
         obj->readPropertyDescription(pid, pidx, writeEnable, type, numberOfElements, access);
 
-    applicationLayer().propertyExtDescriptionReadResponse(AckRequested, priority, hopType, asap, secCtrl, objectType, objectInstance, propertyId, propertyIndex,
+    // Return the RESOLVED pid/index (readPropertyDescription resolves them in place, like the non-ext handler):
+    // echoing the client's propertyId/propertyIndex made by-index reads report pid=0 -> ETS could not enumerate PIDs.
+    applicationLayer().propertyExtDescriptionReadResponse(AckRequested, priority, hopType, asap, secCtrl, objectType, objectInstance, pid, pidx,
         descriptionType, writeEnable, type, numberOfElements, access);
 }
 
@@ -291,7 +300,17 @@ void BauSystemB::propertyValueWriteIndication(Priority priority, HopCountType ho
 {
     InterfaceObject* obj = getInterfaceObject(objectIndex);
     if(obj)
-        obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
+    {
+        // Memory-safety guard (see propertyValueExtWriteIndication): numberOfElements is attacker-controlled and
+        // DataProperty::write() memcpy()s numberOfElements*ElementSize() from `data`; never read past the payload.
+        Property* prop = obj->property((PropertyID)propertyId);
+        // PID_LOAD_STATE_CONTROL (PDT_CONTROL, ElementSize reports 1) reaches additionalLoadControls, which reads
+        // 8 octets for LE_ADDITIONAL_LOAD_CONTROLS; ElementSize does not bound that -> drop a short/corrupt one.
+        bool loadCtrlShort = (propertyId == PID_LOAD_STATE_CONTROL && length >= 1
+                              && data[0] == LE_ADDITIONAL_LOAD_CONTROLS && length < 8);
+        if (!loadCtrlShort && (prop == nullptr || (uint32_t)numberOfElements * prop->ElementSize() <= length))
+            obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
+    }
     propertyValueReadIndication(priority, hopType, asap, secCtrl, objectIndex, propertyId, numberOfElements, startIndex);
 }
 
@@ -302,7 +321,21 @@ void BauSystemB::propertyValueExtWriteIndication(Priority priority, HopCountType
 
     InterfaceObject* obj = getInterfaceObject(objectType, objectInstance);
     if(obj)
-        obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
+    {
+        // Memory-safety: numberOfElements is attacker-controlled; DataProperty::write() clamps it only against
+        // _maxElements and then memcpy()s numberOfElements*ElementSize() from `data`, over-reading the
+        // `length`-octet payload (and persisting the stolen bytes into the property). Reject a write that
+        // claims more element data than the payload carries.
+        Property* prop = obj->property((PropertyID)propertyId);
+        // see propertyValueWriteIndication: the LE_ADDITIONAL_LOAD_CONTROLS callback reads 8 octets (PDT_CONTROL
+        // ElementSize reports 1 and does not bound it) -> reject a short/corrupt load-control write.
+        bool loadCtrlShort = (propertyId == PID_LOAD_STATE_CONTROL && length >= 1
+                              && data[0] == LE_ADDITIONAL_LOAD_CONTROLS && length < 8);
+        if (loadCtrlShort || (prop != nullptr && (uint32_t)numberOfElements * prop->ElementSize() > length))
+            returnCode = ReturnCodes::DataOverflow;
+        else
+            obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
+    }
     else
         returnCode = ReturnCodes::AddressVoid;
 
@@ -333,7 +366,17 @@ void BauSystemB::propertyValueReadIndication(Priority priority, HopCountType hop
     {
         uint8_t elementSize = obj->propertySize((PropertyID)propertyId);
         if (startIndex > 0)
-            size = elementSize * numberOfElements;
+        {
+            // EC: clamp count so elementSize*count fits the uint8 buffer -> no size truncation mismatch and no
+            // oversized stack VLA (a PropertyValueRead with a large count would otherwise overflow data[]).
+            uint16_t total = (uint16_t)elementSize * numberOfElements;
+            if (total > 255)
+            {
+                elementCount = elementSize ? (uint8_t)(255 / elementSize) : 0;
+                total = (uint16_t)elementSize * elementCount;
+            }
+            size = (uint8_t)total;
+        }
         else
             size = sizeof(uint16_t); // size of property array entry 0 which contains the current number of elements
     }
@@ -343,7 +386,7 @@ void BauSystemB::propertyValueReadIndication(Priority priority, HopCountType hop
     uint8_t data[size];
     if(obj)
         obj->readProperty((PropertyID)propertyId, startIndex, elementCount, data);
-    
+
     if (elementCount == 0)
         size = 0;
     
@@ -361,7 +404,18 @@ void BauSystemB::propertyValueExtReadIndication(Priority priority, HopCountType 
     {
         uint8_t elementSize = obj->propertySize((PropertyID)propertyId);
         if (startIndex > 0)
-            size = elementSize * numberOfElements;
+        {
+            // EC: clamp count so elementSize*count fits the uint8 buffer -> no size truncation mismatch and no
+            // oversized stack VLA (a PropertyValueExtRead with numberOfElements up to 255 over the tunnel would
+            // otherwise overflow data[]).
+            uint16_t total = (uint16_t)elementSize * numberOfElements;
+            if (total > 255)
+            {
+                elementCount = elementSize ? (uint8_t)(255 / elementSize) : 0;
+                total = (uint16_t)elementSize * elementCount;
+            }
+            size = (uint8_t)total;
+        }
         else
             size = sizeof(uint16_t); // size of propert array entry 0 which is the size
     }
@@ -390,7 +444,8 @@ void BauSystemB::functionPropertyCommandIndication(Priority priority, HopCountTy
     InterfaceObject* obj = getInterfaceObject(objectIndex);
     if(obj)
     {
-        if (obj->property((PropertyID)propertyId)->Type() == PDT_FUNCTION)
+        Property* prop = obj->property((PropertyID)propertyId);
+        if (prop != nullptr && prop->Type() == PDT_FUNCTION) // property() returns nullptr for an unknown PID -> null-deref
         {
             obj->command((PropertyID)propertyId, data, length, resultData, resultLength);
             handled = true;
@@ -423,7 +478,8 @@ void BauSystemB::functionPropertyStateIndication(Priority priority, HopCountType
     InterfaceObject* obj = getInterfaceObject(objectIndex);
     if(obj)
     {
-        if (obj->property((PropertyID)propertyId)->Type() == PDT_FUNCTION)
+        Property* prop = obj->property((PropertyID)propertyId);
+        if (prop != nullptr && prop->Type() == PDT_FUNCTION) // property() returns nullptr for an unknown PID -> null-deref
         {
             obj->state((PropertyID)propertyId, data, length, resultData, resultLength);
             handled = true;
@@ -448,13 +504,15 @@ void BauSystemB::functionPropertyStateIndication(Priority priority, HopCountType
 void BauSystemB::functionPropertyExtCommandIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, ObjectType objectType, uint8_t objectInstance,
                                                       uint8_t propertyId, uint8_t* data, uint8_t length)
 {
+    if (length == 0) return; // the reserved input octet data[0] must be present; drop a truncated ext function-property command
     uint8_t resultData[kFunctionPropertyResultBufferMaxSize];
     uint8_t resultLength = 1; // we always have to include the return code at least
 
     InterfaceObject* obj = getInterfaceObject(objectType, objectInstance);
     if(obj)
     {
-        PropertyDataType propType = obj->property((PropertyID)propertyId)->Type();
+        Property* prop = obj->property((PropertyID)propertyId);
+        PropertyDataType propType = prop != nullptr ? prop->Type() : (PropertyDataType)0; // null (unknown PID) -> non-FUNCTION sentinel, never deref null
 
         if (propType == PDT_FUNCTION)
         {
@@ -474,8 +532,11 @@ void BauSystemB::functionPropertyExtCommandIndication(Priority priority, HopCoun
         else if (propType == PDT_CONTROL)
         {
             uint8_t count = 1;
-            // write the event
-            obj->writeProperty((PropertyID)propertyId, 1, data, count);
+            // guard: LE_ADDITIONAL_LOAD_CONTROLS reads 8 octets (see propertyValueWriteIndication); skip a short/corrupt one
+            if (propertyId == PID_LOAD_STATE_CONTROL && length >= 1 && data[0] == LE_ADDITIONAL_LOAD_CONTROLS && length < 8)
+                count = 0;
+            else
+                obj->writeProperty((PropertyID)propertyId, 1, data, count);
             if (count == 1)
             {
                 // Read the current state (one byte only) for the response
@@ -504,13 +565,15 @@ void BauSystemB::functionPropertyExtCommandIndication(Priority priority, HopCoun
 void BauSystemB::functionPropertyExtStateIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, ObjectType objectType, uint8_t objectInstance,
                                                     uint8_t propertyId, uint8_t* data, uint8_t length)
 {
+    if (length == 0) return; // the reserved input octet data[0] must be present; drop a truncated ext function-property state read
     uint8_t resultData[kFunctionPropertyResultBufferMaxSize];
     uint8_t resultLength = sizeof(resultData); // tell the callee the maximum size of the buffer
 
     InterfaceObject* obj = getInterfaceObject(objectType, objectInstance);
     if(obj)
     {
-        PropertyDataType propType = obj->property((PropertyID)propertyId)->Type();
+        Property* prop = obj->property((PropertyID)propertyId);
+        PropertyDataType propType = prop != nullptr ? prop->Type() : (PropertyDataType)0; // null (unknown PID) -> non-FUNCTION sentinel, never deref null
 
         if (propType == PDT_FUNCTION)
         {
@@ -713,8 +776,21 @@ void BauSystemB::propertyValueWrite(ObjectType objectType, uint8_t objectInstanc
 {
     InterfaceObject* obj =  getInterfaceObject(objectType, objectInstance);
     if(obj)
-        obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
-    else 
+    {
+        // Memory-safety (same class as propertyValue(Ext)WriteIndication, but this is the cEMI-server feeder):
+        // the length is passed but DataProperty::write() clamps count only against _maxElements and then
+        // memcpy()s numberOfElements*ElementSize() from `data`. Reject a write claiming more element data than
+        // the `length`-octet payload carries -> no over-read past the cEMI request buffer, no info-leak persisted.
+        Property* prop = obj->property((PropertyID)propertyId);
+        // see propertyValueWriteIndication: bound the LE_ADDITIONAL_LOAD_CONTROLS 8-octet read against the payload
+        bool loadCtrlShort = (propertyId == PID_LOAD_STATE_CONTROL && length >= 1
+                              && data[0] == LE_ADDITIONAL_LOAD_CONTROLS && length < 8);
+        if (loadCtrlShort || (prop != nullptr && (uint32_t)numberOfElements * prop->ElementSize() > length))
+            numberOfElements = 0;
+        else
+            obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
+    }
+    else
         numberOfElements = 0;
 }
 
