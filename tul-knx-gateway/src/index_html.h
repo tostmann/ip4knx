@@ -340,7 +340,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 'update.currentIsLatest': 'Current version is the latest ({latest}).', 'update.loadingManifest': 'Loading manifest…', 'update.availableMessage': 'Update available: {latest} (current {current}).', 'update.installing': 'Installing… {progress} / {total} bytes', 'update.done': 'Success — the gateway is restarting. The page will reload automatically.', 'update.unknownError': 'unknown', 'update.confirm': 'Install the online update now? The gateway will restart afterwards.', 'update.startError': 'Error starting update: {error}',
                 'ota.calculatingMd5': 'Calculating MD5…', 'ota.md5Failed': 'MD5 calculation failed: {error}', 'ota.uploading': 'MD5 {md5} — uploading…', 'ota.success': 'OTA successful — the gateway will restart in about 2 seconds.', 'ota.failed': 'OTA failed (HTTP {status})', 'ota.networkError': 'OTA: network error during upload.', 'knx.toggleError': 'Error changing programming mode!', 'knx.active': 'ACTIVE', 'knx.off': 'OFF', 'wifi.clearConfirm': 'Delete Wi-Fi credentials and restart the gateway permanently in AP mode?', 'wifi.cleared': 'Wi-Fi credentials deleted. The gateway will now restart in AP mode.',
                 'ethernet.wifiOff': 'off (Ethernet active)', 'ethernet.noCable': 'No cable', 'ethernet.connected': 'Connected', 'ethernet.activeForKnx': 'Connected, active for KNX',
-                'ncn.v20v': 'V20V linear voltage regulator within its normal operating range', 'ncn.vdd2': 'DC2 regulator within its normal operating range', 'ncn.vbus': 'KNX bus voltage within its normal range', 'ncn.vfilt': 'Tank capacitor within its normal range', 'ncn.xtal': 'Crystal oscillator frequency within its normal range',
+                'ncn.v20v': 'V20V linear voltage regulator within its normal operating range', 'ncn.vdd2': 'DC2 regulator within its normal operating range', 'ncn.vbus': 'KNX bus voltage within its normal range', 'ncn.vfilt': 'Tank capacitor within its normal operating range', 'ncn.xtal': 'Crystal oscillator frequency within its normal range',
                 'ncn.stateConnected': 'Connected', 'ncn.stateDisconnected': 'No response', 'ncn.stateBusmonitor': 'Bus monitor', 'ncn.stateUninitialized': 'No bus detected', 'ncn.stateNoLayer': 'Not initialized', 'ncn.unknownNoConnection': 'Unknown — no connection to the NCN5130',
                 'ncn.noResponseHint': '<b>The transceiver is not responding.</b> The NCN5130 is powered by the KNX bus — please check the bus terminal and bus voltage. The gateway retries every 2&nbsp;seconds: as soon as the bus is available, it starts automatically; no restart is needed.',
                 'ncn.connectionLostHint': '<b>Connection to the transceiver was lost.</b> The gateway automatically resets and reconnects the NCN5130.',
@@ -391,8 +391,15 @@ const char index_html[] PROGMEM = R"rawliteral(
             return text.replace(/\{(\w+)\}/g, (_, name) => values && values[name] !== undefined ? values[name] : '');
         }
 
+        // Object.prototype keys ('__proto__', 'constructor', 'toString', …) would
+        // pass a bare `translations[locale]` truthiness test and leave every runtime
+        // string rendering as its raw key. Only own properties are languages.
+        function isLanguage(locale) {
+            return Object.prototype.hasOwnProperty.call(translations, locale);
+        }
+
         function setLanguage(locale) {
-            language = translations[locale] ? locale : 'en';
+            language = isLanguage(locale) ? locale : 'en';
             try { localStorage.setItem('ip4knx-language', language); } catch (e) { /* storage blocked: choice just will not persist */ }
             document.documentElement.lang = language;
             document.getElementById('language-select').value = language;
@@ -434,7 +441,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 : [navigator.language || 'en'];
             const browserLanguage = browserLanguages
                 .map(locale => locale.toLowerCase().split('-')[0])
-                .find(locale => translations[locale]) || 'en';
+                .find(locale => isLanguage(locale)) || 'en';
             setLanguage(saved || browserLanguage);
         }
 
