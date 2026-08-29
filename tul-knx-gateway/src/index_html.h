@@ -342,7 +342,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 'knx.tunnelingDescription': 'The gateway supports parallel KNXnet/IP tunnelling connections (for example, ETS and Home Assistant).',
                 'ncn.type': 'Type:', 'ncn.state': 'State:', 'ncn.mode': 'Mode:', 'ncn.baudrate': 'Baud rate:', 'ncn.powerRails': 'Power Rails:',
                 'ncn.v20v': 'V20V linear voltage regulator within its normal operating range', 'ncn.vdd2': 'DC2 regulator within its normal operating range', 'ncn.vbus': 'KNX bus voltage within its normal range', 'ncn.vfilt': 'Tank capacitor within its normal range', 'ncn.xtal': 'Crystal oscillator frequency within its normal range', 'ncn.tw': 'Thermal warning active',
-                'ncn.description': 'Tested at boot (U_RESET_REQ / U_STATE_REQ via UART). VBUS is the primary indicator of connected KNX bus voltage.',
+                'ncn.description': 'Continuously checked (U_RESET_REQ / U_STATE_REQ via UART). VBUS is the primary indicator of connected KNX bus voltage.',
                 'bus.statistics': 'KNX Bus Statistics (UART)', 'bus.load': 'Bus load:', 'bus.receivedFrames': 'Received telegrams (RX):', 'bus.sentFrames': 'Sent telegrams (TX):', 'bus.receivedBytes': 'Received bytes (RX):', 'bus.sentBytes': 'Sent bytes (TX):',
                 'firmware.system': 'Firmware & System', 'firmware.version': 'Version:', 'firmware.buildNumber': 'Build Number:', 'firmware.activePartition': 'Active Partition:', 'firmware.onlineUpdate': 'Online Update',
                 'firmware.onlineUpdateDescription': 'Update directly from install.busware.de/ip4knx/. The MD5 checksum in the manifest protects integrity. Anti-brick: app1 boot activates only when the MD5 is correct.',
@@ -359,6 +359,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                 'ncn.noResponseHint': '<b>The transceiver is not responding.</b> The NCN5130 is powered by the KNX bus — please check the bus terminal and bus voltage. The gateway retries every 2&nbsp;seconds: as soon as the bus is available, it starts automatically; no restart is needed.',
                 'ncn.connectionLostHint': '<b>Connection to the transceiver was lost.</b> The gateway automatically resets and reconnects the NCN5130.',
                 'ncn.noBusVoltageHint': '<b>No bus voltage (VBUS).</b> The transceiver is responding, but the KNX bus is not supplying voltage — telegrams can neither be received nor sent.',
+                'ncn.modeNormal': 'Normal', 'ncn.modeStop': 'Stop', 'ncn.modeSync': 'Sync', 'ncn.modePowerUp': 'Power-Up',
+                'ncn.selfTestOk': 'OK', 'ncn.selfTestOkNoVbus': 'OK (no VBUS!)', 'ncn.selfTestNoUart': 'FAIL (no NCN UART response)', 'ncn.selfTestNoDl': 'FAIL (no DL layer)', 'ncn.selfTestPending': 'pending',
                 'knx.yes': 'Yes', 'knx.no': 'No', 'status.apMode': 'AP Mode Active', 'status.wifiConnected': 'Wi-Fi Connected', 'status.wifiDisconnected': 'Wi-Fi Disconnected'
             },
             de: {
@@ -374,6 +376,8 @@ const char index_html[] PROGMEM = R"rawliteral(
                 'ncn.noResponseHint': '<b>Der Transceiver antwortet nicht.</b> Der NCN5130 wird aus dem KNX-Bus versorgt — bitte Busklemme und Busspannung prüfen. Das Gateway versucht es alle 2&nbsp;Sekunden erneut: Sobald der Bus anliegt, geht es von selbst in Betrieb; ein Neustart ist nicht nötig.',
                 'ncn.connectionLostHint': '<b>Verbindung zum Transceiver verloren.</b> Das Gateway setzt den NCN5130 automatisch zurück und verbindet sich neu.',
                 'ncn.noBusVoltageHint': '<b>Keine Busspannung (VBUS).</b> Der Transceiver antwortet, aber der KNX-Bus liefert keine Spannung — Telegramme können weder empfangen noch gesendet werden.',
+                'ncn.modeNormal': 'Normal', 'ncn.modeStop': 'Stopp', 'ncn.modeSync': 'Synchronisierung', 'ncn.modePowerUp': 'Hochfahren',
+                'ncn.selfTestOk': 'OK', 'ncn.selfTestOkNoVbus': 'OK (kein VBUS!)', 'ncn.selfTestNoUart': 'FEHLER (keine Antwort vom NCN-UART)', 'ncn.selfTestNoDl': 'FEHLER (keine DL-Schicht)', 'ncn.selfTestPending': 'ausstehend',
                 'bus.statistics': 'KNX-Busstatistik (UART)', 'bus.load': 'Buslast:', 'bus.receivedFrames': 'Empfangene Telegramme (RX):', 'bus.sentFrames': 'Gesendete Telegramme (TX):', 'bus.receivedBytes': 'Empfangene Bytes (RX):', 'bus.sentBytes': 'Gesendete Bytes (TX):',
                 'firmware.system': 'Firmware & System', 'firmware.version': 'Version:', 'firmware.buildNumber': 'Build-Nummer:', 'firmware.activePartition': 'Aktive Partition:', 'firmware.onlineUpdate': 'Online-Update',
                 'firmware.onlineUpdateDescription': 'Aktualisierung direkt von install.busware.de/ip4knx/. Die MD5-Prüfsumme im Manifest schützt die Integrität. Anti-Brick: app1-Boot wird nur bei korrekter MD5 aktiviert.',
@@ -393,6 +397,8 @@ const char index_html[] PROGMEM = R"rawliteral(
         const defaultStaticAttributes = {};
         let language = 'en';
         let lastUpdateState = null;
+        let lastStatusData = null;
+        let wifiScanInProgress = false;
 
         function t(key, values) {
             let text = (translations[language] && translations[language][key]) || defaultStaticText[key] || key;
@@ -419,8 +425,15 @@ const char index_html[] PROGMEM = R"rawliteral(
                 });
             });
             const otaFile = document.getElementById('ota-file');
-            if (!otaFile.files || !otaFile.files[0]) document.getElementById('ota-status').textContent = t('ota.noFile');
+            const otaStatus = document.getElementById('ota-status');
+            if (otaFile.files && otaFile.files[0]) {
+                otaStatus.textContent = otaFile.files[0].name + ' (' + (otaFile.files[0].size / 1024).toFixed(1) + ' KB)';
+            } else {
+                otaStatus.textContent = t('ota.noFile');
+            }
+            if (wifiScanInProgress) document.getElementById('scan-btn').innerText = t('wifi.searching');
             if (lastUpdateState) renderUpdState(lastUpdateState);
+            if (lastStatusData) renderConnectionStatus(lastStatusData);
             updateStatus();
         }
 
@@ -468,9 +481,11 @@ const char index_html[] PROGMEM = R"rawliteral(
         // re-enables even if the scan never completes.
         function scanWifi() {
             let btn = document.getElementById('scan-btn');
+            wifiScanInProgress = true;
             btn.innerText = t('wifi.searching');
             btn.disabled = true;
             function finish(msg) {
+                wifiScanInProgress = false;
                 if (msg) alert(msg);
                 btn.innerText = t('action.scanWifi');
                 btn.disabled = false;
@@ -762,10 +777,50 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
 
 
+        function translateNcnMode(mode) {
+            return {
+                'Normal':   t('ncn.modeNormal'),
+                'Stop':     t('ncn.modeStop'),
+                'Sync':     t('ncn.modeSync'),
+                'Power-UP': t('ncn.modePowerUp')
+            }[mode] || mode;
+        }
+
+        function translateNcnSelfTest(result) {
+            return {
+                'OK':                          t('ncn.selfTestOk'),
+                'OK (no VBUS!)':               t('ncn.selfTestOkNoVbus'),
+                'FAIL (no NCN UART response)': t('ncn.selfTestNoUart'),
+                'FAIL (no DL layer)':          t('ncn.selfTestNoDl'),
+                'pending':                     t('ncn.selfTestPending')
+            }[result] || result;
+        }
+
+        function renderConnectionStatus(data) {
+            const badge = document.getElementById('system-status');
+            if (data.is_ap_mode) {
+                badge.innerText = t('status.apMode');
+                badge.className = 'status-badge status-online';
+                badge.style.backgroundColor = '#0288d1';
+                badge.style.color = '#ffffff';
+            } else if (data.wifi_connected) {
+                badge.innerText = t('status.wifiConnected');
+                badge.className = 'status-badge status-online';
+                badge.style.backgroundColor = '';
+                badge.style.color = '';
+            } else {
+                badge.innerText = t('status.wifiDisconnected');
+                badge.className = 'status-badge status-offline';
+                badge.style.backgroundColor = '';
+                badge.style.color = '';
+            }
+        }
+
         function updateStatus() {
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
+                    lastStatusData = data;
                     document.getElementById('uptime').innerText = data.uptime;
                     // A parked radio would otherwise read as "N/A / 0.0.0.0",
                     // which looks like a fault instead of a deliberate state.
@@ -821,10 +876,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                         }[data.ncn.state] || data.ncn.state;
                         stateBadge.innerText = stateText;
                         stateBadge.className = 'status-badge ' + (data.ncn.connected ? 'status-online' : 'status-offline');
-                        document.getElementById('ncn_mode').innerText = data.ncn.mode;
+                        document.getElementById('ncn_mode').innerText = translateNcnMode(data.ncn.mode);
                         document.getElementById('ncn_baud').innerText = data.ncn.baud > 0 ? (data.ncn.baud + ' Bd') : '—';
                         var stEl = document.getElementById('ncn_selftest');
-                        if (stEl) stEl.innerText = data.ncn.self_test || '—';
+                        if (stEl) stEl.innerText = translateNcnSelfTest(data.ncn.self_test || '—');
                         ['v20v','vdd2','vbus','vfilt','xtal'].forEach(function(r) {
                             var el = document.getElementById('ncn_' + r);
                             if (!el) return;
@@ -861,23 +916,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                         document.getElementById('bus_load').innerText = data.bus_load;
                     }
                     
-                    let badge = document.getElementById('system-status');
-                    if (data.is_ap_mode) {
-                        badge.innerText = t('status.apMode');
-                        badge.className = 'status-badge status-online';
-                        badge.style.backgroundColor = '#0288d1'; // distinct color for AP mode
-                        badge.style.color = '#ffffff';
-                    } else if (data.wifi_connected) {
-                        badge.innerText = t('status.wifiConnected');
-                        badge.className = 'status-badge status-online';
-                        badge.style.backgroundColor = ''; // reset style in case it was set
-                        badge.style.color = '';
-                    } else {
-                        badge.innerText = t('status.wifiDisconnected');
-                        badge.className = 'status-badge status-offline';
-                        badge.style.backgroundColor = ''; // reset style in case it was set
-                        badge.style.color = '';
-                    }
+                    renderConnectionStatus(data);
 
                     // Build info
                     if (data.build) {
