@@ -2,7 +2,7 @@
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -393,7 +393,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         function setLanguage(locale) {
             language = translations[locale] ? locale : 'en';
-            localStorage.setItem('ip4knx-language', language);
+            try { localStorage.setItem('ip4knx-language', language); } catch (e) { /* storage blocked: choice just will not persist */ }
             document.documentElement.lang = language;
             document.getElementById('language-select').value = language;
             document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -424,7 +424,8 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
 
         function initializeI18n() {
-            const saved = localStorage.getItem('ip4knx-language');
+            let saved = null;
+            try { saved = localStorage.getItem('ip4knx-language'); } catch (e) { /* storage blocked */ }
             // navigator.languages is ordered by the user's language preference
             // (for example, ["en-GB", "en", "de"]). Match a supported base
             // language and fall back to English if none is available.
