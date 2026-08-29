@@ -178,9 +178,9 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <div class="info-row"><span>WiFi SSID:</span> <span id="wifi_ssid">-</span></div>
                     <div class="info-row"><span data-i18n="system.ipAddress">IP Address:</span> <span id="ip_addr">-</span></div>
                     <div class="info-row"><span data-i18n="system.macAddress">MAC Address:</span> <span id="mac_addr">-</span></div>
-                    <div class="info-row" id="eth_row" style="display:none;"><span data-i18n="ethernet.label">Ethernet:</span> <span id="eth_state">-</span></div>
-                    <div class="info-row" id="eth_ip_row" style="display:none;"><span data-i18n="ethernet.ip">Ethernet IP:</span> <span id="eth_ip">-</span></div>
-                    <div class="info-row" id="eth_mac_row" style="display:none;"><span data-i18n="ethernet.mac">Ethernet MAC:</span> <span id="eth_mac">-</span></div>
+                    <div class="info-row" id="eth_row" style="display:none;"><span>Ethernet:</span> <span id="eth_state">-</span></div>
+                    <div class="info-row" id="eth_ip_row" style="display:none;"><span>Ethernet IP:</span> <span id="eth_ip">-</span></div>
+                    <div class="info-row" id="eth_mac_row" style="display:none;"><span>Ethernet MAC:</span> <span id="eth_mac">-</span></div>
                 </div>
             </section>
 
@@ -222,7 +222,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                     <div class="info-row"><span data-i18n="ncn.baudrate">Baud Rate:</span> <span id="ncn_baud">-</span></div>
                     <div class="info-row"><span data-i18n="ncn.selfTest">Self Test:</span> <span id="ncn_selftest">-</span></div>
                     <div class="info-row rail-row">
-                        <span data-i18n="ncn.powerRails">Power Rails:</span>
+                        <span>Power Rails:</span>
                         <span id="ncn_v20v"  class="rail-badge" data-i18n-title="ncn.v20v" title="V20V linear voltage regulator within its normal operating range">V20V</span>
                         <span id="ncn_vdd2"  class="rail-badge" data-i18n-title="ncn.vdd2" title="DC2 regulator within its normal operating range">VDD2</span>
                         <span id="ncn_vbus"  class="rail-badge" data-i18n-title="ncn.vbus" title="KNX bus voltage within its normal range">VBUS</span>
@@ -336,25 +336,11 @@ const char index_html[] PROGMEM = R"rawliteral(
         // this single-file UI can be localized without a library or an API change.
         const translations = {
             en: {
-                'wifi.settingsTitle': 'Click for Wi-Fi settings', 'status.connected': 'Connected',
-                'system.status': 'System Status', 'system.uptime': 'Uptime:', 'system.ipAddress': 'IP Address:', 'system.macAddress': 'MAC Address:',
-                'knx.parameters': 'KNX Parameters', 'knx.programmed': 'Programmed (ETS):', 'knx.physicalAddress': 'Physical Address:', 'knx.programmingMode': 'Programming Mode:', 'action.toggle': 'Toggle', 'knx.activeClients': 'Active Clients:',
-                'knx.tunnelingDescription': 'The gateway supports parallel KNXnet/IP tunnelling connections (for example, ETS and Home Assistant).',
-                'ncn.type': 'Type:', 'ncn.state': 'State:', 'ncn.mode': 'Mode:', 'ncn.baudrate': 'Baud rate:', 'ncn.powerRails': 'Power Rails:',
-                'ncn.v20v': 'V20V linear voltage regulator within its normal operating range', 'ncn.vdd2': 'DC2 regulator within its normal operating range', 'ncn.vbus': 'KNX bus voltage within its normal range', 'ncn.vfilt': 'Tank capacitor within its normal range', 'ncn.xtal': 'Crystal oscillator frequency within its normal range', 'ncn.tw': 'Thermal warning active',
-                'ncn.description': 'Continuously checked (U_RESET_REQ / U_STATE_REQ via UART). VBUS is the primary indicator of connected KNX bus voltage.',
-                'bus.statistics': 'KNX Bus Statistics (UART)', 'bus.load': 'Bus load:', 'bus.receivedFrames': 'Received telegrams (RX):', 'bus.sentFrames': 'Sent telegrams (TX):', 'bus.receivedBytes': 'Received bytes (RX):', 'bus.sentBytes': 'Sent bytes (TX):',
-                'firmware.system': 'Firmware & System', 'firmware.version': 'Version:', 'firmware.buildNumber': 'Build Number:', 'firmware.activePartition': 'Active Partition:', 'firmware.onlineUpdate': 'Online Update',
-                'firmware.onlineUpdateDescription': 'Update directly from install.busware.de/ip4knx/. The MD5 checksum in the manifest protects integrity. Anti-brick: app1 boot activates only when the MD5 is correct.',
-                'firmware.latestVersion': 'Latest Version:', 'firmware.available': 'available', 'update.unknown': 'Status unknown — start a check.', 'action.checkForUpdates': 'Check for Updates', 'action.installNow': 'Install Now', 'firmware.manualFile': 'Manual Firmware File',
-                'firmware.manualDescription': 'Upload firmware.bin. The browser calculates and verifies the MD5 checksum; a mismatch does not switch the boot partition (anti-brick).', 'ota.noFile': 'No file selected.', 'action.uploadFirmware': 'Upload Firmware',
-                'hardware.info': 'Hardware Info', 'hardware.processor': 'Processor:', 'hardware.clockSpeed': 'Clock Speed:', 'hardware.totalRam': 'RAM (Total):', 'hardware.freeRam': 'RAM (Free):',
-                'footer.firmware': 'TUL/TUL32 KNX/IP Gateway Firmware', 'footer.basedOn': 'based on', 'footer.repository': 'GitHub Repository', 'wifi.configuration': 'Wi-Fi Configuration', 'action.scanWifi': 'Scan Wi-Fi Networks',
-                'wifi.networkName': 'Network Name (SSID):', 'wifi.selectNetwork': 'Select a network...', 'wifi.ssidPlaceholder': 'Enter your SSID', 'wifi.password': 'Password (PSK):', 'wifi.passwordPlaceholder': 'Password (optional)', 'action.connectRestart': 'Connect & Restart', 'action.restartAp': 'Restart as Access Point (AP)',
                 'wifi.searching': 'Searching...', 'wifi.scanTimeout': 'Scan timed out!', 'wifi.scanError': 'Error scanning networks!', 'wifi.ssidRequired': 'SSID cannot be empty!', 'wifi.configurationSaved': 'Configuration saved. The gateway will now restart.', 'error.prefix': 'Error: ', 'wifi.sendError': 'Error sending request!',
                 'update.currentIsLatest': 'Current version is the latest ({latest}).', 'update.loadingManifest': 'Loading manifest…', 'update.availableMessage': 'Update available: {latest} (current {current}).', 'update.installing': 'Installing… {progress} / {total} bytes', 'update.done': 'Success — the gateway is restarting. The page will reload automatically.', 'update.unknownError': 'unknown', 'update.confirm': 'Install the online update now? The gateway will restart afterwards.', 'update.startError': 'Error starting update: {error}',
                 'ota.calculatingMd5': 'Calculating MD5…', 'ota.md5Failed': 'MD5 calculation failed: {error}', 'ota.uploading': 'MD5 {md5} — uploading…', 'ota.success': 'OTA successful — the gateway will restart in about 2 seconds.', 'ota.failed': 'OTA failed (HTTP {status})', 'ota.networkError': 'OTA: network error during upload.', 'knx.toggleError': 'Error changing programming mode!', 'knx.active': 'ACTIVE', 'knx.off': 'OFF', 'wifi.clearConfirm': 'Delete Wi-Fi credentials and restart the gateway permanently in AP mode?', 'wifi.cleared': 'Wi-Fi credentials deleted. The gateway will now restart in AP mode.',
                 'ethernet.wifiOff': 'off (Ethernet active)', 'ethernet.noCable': 'No cable', 'ethernet.connected': 'Connected', 'ethernet.activeForKnx': 'Connected, active for KNX',
+                'ncn.v20v': 'V20V linear voltage regulator within its normal operating range', 'ncn.vdd2': 'DC2 regulator within its normal operating range', 'ncn.vbus': 'KNX bus voltage within its normal range', 'ncn.vfilt': 'Tank capacitor within its normal range', 'ncn.xtal': 'Crystal oscillator frequency within its normal range',
                 'ncn.stateConnected': 'Connected', 'ncn.stateDisconnected': 'No response', 'ncn.stateBusmonitor': 'Bus monitor', 'ncn.stateUninitialized': 'No bus detected', 'ncn.stateNoLayer': 'Not initialized', 'ncn.unknownNoConnection': 'Unknown — no connection to the NCN5130',
                 'ncn.noResponseHint': '<b>The transceiver is not responding.</b> The NCN5130 is powered by the KNX bus — please check the bus terminal and bus voltage. The gateway retries every 2&nbsp;seconds: as soon as the bus is available, it starts automatically; no restart is needed.',
                 'ncn.connectionLostHint': '<b>Connection to the transceiver was lost.</b> The gateway automatically resets and reconnects the NCN5130.',
@@ -366,10 +352,10 @@ const char index_html[] PROGMEM = R"rawliteral(
             de: {
                 'wifi.settingsTitle': 'Für WLAN-Einstellungen klicken', 'status.connected': 'Verbunden',
                 'system.status': 'Systemstatus', 'system.uptime': 'Laufzeit:', 'system.ipAddress': 'IP-Adresse:', 'system.macAddress': 'MAC-Adresse:',
-                'ethernet.label': 'Ethernet:', 'ethernet.ip': 'Ethernet-IP:', 'ethernet.mac': 'Ethernet-MAC:', 'ethernet.wifiOff': 'aus (Ethernet aktiv)', 'ethernet.noCable': 'Kein Kabel', 'ethernet.connected': 'Verbunden', 'ethernet.activeForKnx': 'Verbunden, aktiv für KNX',
+                'ethernet.wifiOff': 'aus (Ethernet aktiv)', 'ethernet.noCable': 'Kein Kabel', 'ethernet.connected': 'Verbunden', 'ethernet.activeForKnx': 'Verbunden, aktiv für KNX',
                 'knx.parameters': 'KNX-Parameter', 'knx.programmed': 'Programmiert (ETS):', 'knx.physicalAddress': 'Physikalische Adresse:', 'knx.programmingMode': 'Programmiermodus:', 'action.toggle': 'Umschalten', 'knx.activeClients': 'Aktive Clients:',
                 'knx.tunnelingDescription': 'Das Gateway unterstützt parallele KNXnet/IP-Tunneling-Verbindungen (z. B. für ETS und Home Assistant).',
-                'ncn.type': 'Typ:', 'ncn.state': 'Zustand:', 'ncn.mode': 'Modus:', 'ncn.baudrate': 'Baudrate:', 'ncn.selfTest': 'Selbsttest:', 'ncn.powerRails': 'Versorgungsspannungen:',
+                'ncn.type': 'Typ:', 'ncn.state': 'Zustand:', 'ncn.mode': 'Modus:', 'ncn.baudrate': 'Baudrate:', 'ncn.selfTest': 'Selbsttest:',
                 'ncn.v20v': 'V20V-Linearregler im normalen Betriebsbereich', 'ncn.vdd2': 'DC2-Regler im normalen Betriebsbereich', 'ncn.vbus': 'KNX-Busspannung im normalen Bereich', 'ncn.vfilt': 'Tank-Kondensator im normalen Bereich', 'ncn.xtal': 'Quarzoszillator-Frequenz im normalen Betriebsbereich', 'ncn.tw': 'Thermische Warnung aktiv',
                 'ncn.description': 'Wird laufend geprüft (U_RESET_REQ / U_STATE_REQ über UART). VBUS ist der primäre Indikator für angeschlossene KNX-Busspannung.',
                 'ncn.stateConnected': 'Verbunden', 'ncn.stateDisconnected': 'Keine Antwort', 'ncn.stateBusmonitor': 'Busmonitor', 'ncn.stateUninitialized': 'Kein Bus erkannt', 'ncn.stateNoLayer': 'Nicht initialisiert', 'ncn.unknownNoConnection': 'Unbekannt — keine Verbindung zum NCN5130',
