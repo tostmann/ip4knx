@@ -41,18 +41,22 @@ if git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then
     exit 1
 fi
 
-# Verify the firmware version baked into the build matches the requested
-# release version.  This catches the common mistake of forgetting to run a
-# fresh `pio run` after editing version.txt.
+# The firmware version baked into the build.  It is NOT expected to equal the
+# tag: the tag is a curated release counter (v1.4.15 shipped FW 1.4.121), while
+# the firmware carries the monotone build number.  What has to line up is the
+# smoke artifact and the firmware actually being shipped, so that is what the
+# gate below is asked about.
 HEADER="tul-knx-gateway/src/version.h"
+FW_VERSION=""
 if [[ -f "$HEADER" ]]; then
-    BUILT_VERSION=$(awk -F'"' '/FW_VERSION_STRING/ {print $2}' "$HEADER")
-    if [[ "$BUILT_VERSION" != "$VERSION" ]]; then
-        echo "ERROR: $HEADER says version $BUILT_VERSION, but release is for $VERSION" >&2
-        echo "       run 'pio run -e <env>' to regenerate version.h, then retry" >&2
-        exit 1
-    fi
+    FW_VERSION=$(awk -F'"' '/FW_VERSION_STRING/ {print $2; exit}' "$HEADER")
 fi
+if [[ -z "$FW_VERSION" ]]; then
+    echo "ERROR: no FW_VERSION_STRING in $HEADER" >&2
+    echo "       run 'pio run -e <env>' to regenerate version.h, then retry" >&2
+    exit 1
+fi
+echo "Tag $TAG ships firmware $FW_VERSION"
 
 # C3-vs-C6 smoke-load gate (release condition, decision 2026-06-09).  Every
 # release must be preceded by a passing concurrent-tunnel smoke test on BOTH
@@ -62,7 +66,7 @@ fi
 if [[ "${ALLOW_UNTESTED_RELEASE:-0}" == "1" ]]; then
     echo "WARNING: ALLOW_UNTESTED_RELEASE=1 — skipping C3/C6 smoke-load gate"
 else
-    python3 scripts/check_loadtest_gate.py --version "$VERSION" || exit 1
+    python3 scripts/check_loadtest_gate.py --version "$FW_VERSION" || exit 1
 fi
 
 HEAD_SHA=$(git rev-parse --short=7 HEAD)
