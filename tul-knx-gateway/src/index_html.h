@@ -85,6 +85,7 @@ const char index_html[] PROGMEM = R"rawliteral(
         }
         .status-online { background: #d4edda; color: #155724; }
         .status-offline { background: #f8d7da; color: #721c24; }
+        .status-standby { background: #fff3cd; color: #7a5b00; }
         .rail-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
         .rail-row > span:first-child { color: #555; min-width: 110px; }
         .rail-badge {
@@ -347,7 +348,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 'ncn.noBusVoltageHint': '<b>No bus voltage (VBUS).</b> The transceiver is responding, but the KNX bus is not supplying voltage — telegrams can neither be received nor sent.',
                 'ncn.modeNormal': 'Normal', 'ncn.modeStop': 'Stop', 'ncn.modeSync': 'Sync', 'ncn.modePowerUp': 'Power-Up',
                 'ncn.selfTestOk': 'OK', 'ncn.selfTestOkNoVbus': 'OK (no VBUS!)', 'ncn.selfTestNoUart': 'FAIL (no NCN UART response)', 'ncn.selfTestNoDl': 'FAIL (no DL layer)', 'ncn.selfTestPending': 'pending',
-                'knx.yes': 'Yes', 'knx.no': 'No', 'status.apMode': 'AP Mode Active', 'status.wifiConnected': 'Wi-Fi Connected', 'status.wifiDisconnected': 'Wi-Fi Disconnected'
+                'knx.yes': 'Yes', 'knx.no': 'No', 'status.apMode': 'AP Mode Active', 'status.wifiConnected': 'Wi-Fi Connected', 'status.wifiDisconnected': 'Wi-Fi Disconnected', 'status.ethernetActive': 'Ethernet Active', 'status.wifiStandby': 'Wi-Fi Standby'
             },
             de: {
                 'wifi.settingsTitle': 'Für WLAN-Einstellungen klicken', 'status.connected': 'Verbunden',
@@ -376,7 +377,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 'wifi.searching': 'Suche läuft...', 'wifi.scanTimeout': 'Scan-Timeout!', 'wifi.scanError': 'Fehler beim Scannen!', 'wifi.ssidRequired': 'SSID darf nicht leer sein!', 'wifi.configurationSaved': 'Konfiguration gespeichert. Das Gateway startet nun neu.', 'error.prefix': 'Fehler: ', 'wifi.sendError': 'Fehler beim Senden!',
                 'update.currentIsLatest': 'Aktuelle Version ist die neueste ({latest}).', 'update.loadingManifest': 'Manifest wird geladen…', 'update.availableMessage': 'Update verfügbar: {latest} (aktuell {current}).', 'update.installing': 'Installation läuft… {progress} / {total} Bytes', 'update.done': 'Erfolgreich — Gateway startet neu. Seite lädt automatisch.', 'update.unknownError': 'unbekannt', 'update.confirm': 'Online-Update jetzt installieren? Das Gateway startet anschließend neu.', 'update.startError': 'Fehler beim Starten: {error}',
                 'ota.noFile': 'Keine Datei ausgewählt.', 'ota.calculatingMd5': 'Berechne MD5…', 'ota.md5Failed': 'MD5-Berechnung fehlgeschlagen: {error}', 'ota.uploading': 'MD5 {md5} — Upload läuft…', 'ota.success': 'OTA erfolgreich — Gateway startet neu in ~2 s.', 'ota.failed': 'OTA fehlgeschlagen (HTTP {status})', 'ota.networkError': 'OTA: Netzwerkfehler beim Upload.', 'knx.toggleError': 'Fehler beim Umschalten des Programmier-Modus!', 'knx.active': 'AKTIV', 'knx.off': 'AUS', 'wifi.clearConfirm': 'WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?', 'wifi.cleared': 'WLAN-Daten gelöscht. Das Gateway startet nun im AP-Modus neu.',
-                'knx.yes': 'Ja', 'knx.no': 'Nein', 'status.apMode': 'AP Modus Aktiv', 'status.wifiConnected': 'WLAN Verbunden', 'status.wifiDisconnected': 'WLAN Getrennt'
+                'knx.yes': 'Ja', 'knx.no': 'Nein', 'status.apMode': 'AP Modus Aktiv', 'status.wifiConnected': 'WLAN Verbunden', 'status.wifiDisconnected': 'WLAN Getrennt', 'status.ethernetActive': 'Ethernet Aktiv', 'status.wifiStandby': 'WLAN Standby'
             }
         };
         const defaultStaticText = {};
@@ -792,21 +793,31 @@ const char index_html[] PROGMEM = R"rawliteral(
 
         function renderConnectionStatus(data) {
             const badge = document.getElementById('system-status');
+            const eth = data.eth || {};
+            badge.style.backgroundColor = '';
+            badge.style.color = '';
             if (data.is_ap_mode) {
                 badge.innerText = t('status.apMode');
                 badge.className = 'status-badge status-online';
                 badge.style.backgroundColor = '#0288d1';
                 badge.style.color = '#ffffff';
+            } else if (eth.active) {
+                // The cable carries the gateway and the radio is parked on
+                // purpose. Reporting that as "disconnected" sent people
+                // debugging a link that was working.
+                badge.innerText = t('status.ethernetActive');
+                badge.className = 'status-badge status-online';
             } else if (data.wifi_connected) {
                 badge.innerText = t('status.wifiConnected');
                 badge.className = 'status-badge status-online';
-                badge.style.backgroundColor = '';
-                badge.style.color = '';
+            } else if (data.wifi_off_for_eth) {
+                // Radio off by our own hand while the cable is not carrying
+                // us (yet): a transient on the way back to WiFi, not a fault.
+                badge.innerText = t('status.wifiStandby');
+                badge.className = 'status-badge status-standby';
             } else {
                 badge.innerText = t('status.wifiDisconnected');
                 badge.className = 'status-badge status-offline';
-                badge.style.backgroundColor = '';
-                badge.style.color = '';
             }
         }
 
