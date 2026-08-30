@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# commit-msg hook — reject Co-Authored-By trailers naming an AI assistant.
+#
+# Policy: commits in this repository are attributed to the people who decided
+# what goes in them.  A tool trailer would put the tool into the contributors
+# sidebar on github.com and misrepresent who maintains the project.
+#
+# Override (deliberate history rewrites and the like):
+#   ALLOW_CLAUDE_COAUTHOR=1 git commit ...
+
+set -euo pipefail
+msg_file="$1"
+
+if [ "${ALLOW_CLAUDE_COAUTHOR:-0}" = "1" ]; then
+  echo "[commit-msg] ALLOW_CLAUDE_COAUTHOR=1 — policy override." >&2
+  exit 0
+fi
+
+if grep -qiE '^[[:space:]]*Co-[Aa]uthored-[Bb]y:.*([Cc]laude|noreply@anthropic\.com)' "$msg_file"; then
+  cat >&2 <<'EOF'
+[commit-msg] BLOCKED — Co-Authored-By trailer naming an AI assistant.
+
+Commits here are attributed to the people behind them; a tool trailer would
+land in the GitHub contributors sidebar. Drop the line and commit again.
+
+Override (rarely wanted):
+    ALLOW_CLAUDE_COAUTHOR=1 git commit ...
+EOF
+  exit 1
+fi
+exit 0

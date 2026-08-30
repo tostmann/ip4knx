@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Public-repo push policy (ip4knx):
+#   GitHub gets consolidated release commits only — never the build snapshots
+#   the pre-build version-bump hook produces locally.
+#
+# This hook rejects any push to a github.com remote whose transferred range
+# contains commits titled "build snapshot v*".  Override for the rare case of
+# a deliberate history cleanup:
+#     ALLOW_SNAPSHOT_PUSH=1 git push ...
+#
+# Hook protocol: git feeds one line per ref on STDIN:
+#     <local-ref> <local-sha> <remote-ref> <remote-sha>
+set -euo pipefail
+
+remote_name="$1"
+remote_url="$2"
+
+# Only filter GitHub remotes — local backups and mirrors are not covered.
+case "$remote_url" in
+  *github.com*|*github.com-ip4knx*) ;;
+  *) exit 0 ;;
+esac
+
+if [ "${ALLOW_SNAPSHOT_PUSH:-0}" = "1" ]; then
+  echo "[pre-push] ALLOW_SNAPSHOT_PUSH=1 — policy override, continuing."
+  exit 0
+fi
+
+zero="0000000000000000000000000000000000000000"
+fail=0
+release_tags=""
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Branch deletion: no commits to inspect.
+  [ "$local_sha" = "$zero" ] && continue
+
+  # Release tag (vX.Y.Z)?  Remember it for the C3/C6 smoke gate as
+  # "<tag>|<sha>" — the version to check comes from the tagged COMMIT, not
+  # from the tag name (see the gate block below).
+  case "$local_ref" in
+    refs/tags/v[0-9]*) release_tags="$release_tags ${local_ref#refs/tags/}|$local_sha" ;;
+  esac
+
+  # The range actually being transferred to the remote.
+  if [ "$remote_sha" = "$zero" ]; then
+    # New branch / new tag — everything not already somewhere on the remote.
+    range="$local_sha --not --remotes=$remote_name"
+  else
+    range="$remote_sha..$local_sha"
+  fi
+
+  # Look for "build snapshot v*" commits inside that range.
+  bad=$(git log --format='%H %s' $range 2>/dev/null | grep -E '^[0-9a-f]+ build snapshot v' || true)
+  if [ -n "$bad" ]; then
+    echo "[pre-push] BLOCKED: $local_ref -> $remote_ref contains snapshot commits:" >&2
+    echo "$bad" | sed 's/^/  /' >&2
+    fail=1
+  fi
+done
+
+if [ "$fail" = "1" ]; then
+  cat >&2 <<'EOF'
+
+Public-repo push policy: GitHub gets tagged releases, not build snapshots.
+Release workflow:
+  1. accumulate as many local build snapshots as you like (the pre-build hook
+     writes them automatically)
+  2. when a release is due:
+       git reset --soft <last-release-tag>
+       git commit -m "release: vX.Y.Z — <description>"
+       git tag -a vX.Y.Z -m "<release-summary>"
+       git push --force-with-lease=main:<old-sha> origin main vX.Y.Z
+  3. override for a deliberate history rewrite: ALLOW_SNAPSHOT_PUSH=1 git push ...
+EOF
+  exit 1
+fi
+
+# C3-vs-C6 smoke-load gate (release condition, 2026-06-09): every release tag
+# pushed to GitHub needs a passing smoke artifact for EXACTLY the firmware it
+# ships, on both chip families.  This also catches a manual
+# `git push origin vX.Y.Z` that bypasses the release.sh helper.
+# Override:  ALLOW_UNTESTED_RELEASE=1 git push ...
+#
+# What is checked is the FIRMWARE version in src/version.h of the tagged
+# commit, NOT the tag name: the tag is a curated release counter (v1.4.15
+# ships FW 1.4.121, v1.4.13 shipped FW 1.4.117), so the two necessarily
+# differ.  Comparing tag names blocked every single release and turned
+# ALLOW_UNTESTED_RELEASE=1 into routine — an override meant for detached
+# hardware, not for every push.
+if [ -n "$release_tags" ]; then
+  if [ "${ALLOW_UNTESTED_RELEASE:-0}" = "1" ]; then
+    echo "[pre-push] ALLOW_UNTESTED_RELEASE=1 — C3/C6 smoke gate skipped."
+  else
+    for entry in $release_tags; do
+      tag="${entry%%|*}"
+      sha="${entry##*|}"
+      fw=$(git show "${sha}^{commit}:tul-knx-gateway/src/version.h" 2>/dev/null \
+             | awk -F'"' '/FW_VERSION_STRING/ {print $2; exit}' || true)
+      if [ -z "$fw" ]; then
+        echo "[pre-push] BLOCKED: $tag carries no FW_VERSION_STRING in" >&2
+        echo "  tul-knx-gateway/src/version.h — without a firmware version the" >&2
+        echo "  smoke artifact cannot be matched to this release." >&2
+        echo "  Deliberate exception:  ALLOW_UNTESTED_RELEASE=1 git push ..." >&2
+        exit 1
+      fi
+      echo "[pre-push] $tag ships firmware $fw (from src/version.h of the tagged commit)"
+      python3 scripts/check_loadtest_gate.py --version "$fw" || exit 1
+    done
+  fi
+fi
+
+exit 0
