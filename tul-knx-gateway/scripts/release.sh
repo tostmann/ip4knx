@@ -27,12 +27,20 @@ fi
 
 cd "$(git rev-parse --show-toplevel)"
 
-# Refuse to release with a dirty working tree — the snapshot hook would
-# create a new auto-snapshot commit on the next build anyway, so any uncommitted
-# work belongs in a proper commit before the tag is set.
-if [[ -n "$(git status --porcelain)" ]]; then
-    echo "ERROR: working tree dirty — commit or stash before releasing" >&2
-    git status -s
+# At release time the tree always carries one kind of change: the generated
+# version artifacts.  The pre-build hook rewrites src/version.h on every build
+# (fresh BUILD_GIT and timestamp), and the factory build that produces the
+# shipped images runs after the release commit — so demanding a spotless tree
+# made this helper unusable exactly when it was wanted.
+#
+# Everything else uncommitted is still refused: the tag has to point at a
+# commit that contains the sources the firmware was built from.
+AUTO_FILES='^(tul-knx-gateway/build_number\.txt|tul-knx-gateway/src/version\.h)$'
+user_dirty=$(git status --porcelain | cut -c4- | grep -Ev "$AUTO_FILES" || true)
+if [[ -n "$user_dirty" ]]; then
+    echo "ERROR: uncommitted changes outside the generated version files:" >&2
+    echo "$user_dirty" | sed 's/^/  /' >&2
+    echo "       commit or stash them — a tag must match what was built" >&2
     exit 1
 fi
 
