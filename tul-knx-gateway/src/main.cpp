@@ -1703,6 +1703,15 @@ void loop() {
     } else if (currentButtonState == LOW && buttonState == LOW) {
         if (!isApMode && (millis() - buttonPressStart > 2000)) {
             Serial.println("Button held > 2s - Starting Access Point!");
+            // On a cable-carried gateway the radio is parked, and the mode
+            // change below powers it up without the state ever saying so:
+            // wifiOffForEth would stay true, /api/status would keep reporting
+            // the radio as off for ethernet, and the web UI would show that
+            // instead of the AP the user is standing in front of. It also
+            // wedges wifiRadioPark(), which no-ops on an already-parked flag,
+            // so the radio could never be parked again after the AP closes.
+            // No-op when the radio was never parked.
+            wifiRadioResume("button opened the access point", false);
             WiFi.disconnect();
             WiFi.mode(WIFI_AP_STA);
             String mac = WiFi.softAPmacAddress();
