@@ -89,11 +89,22 @@
 #define U_INT_REG_RD_REQ_ACR1 0x3A
 #define U_INT_REG_RD_REQ_ASR0 0x3B
 // Analog Control Register 0 - Bit values (Fixed for NCN5130/NCN5120)
-#define ACR0_FLAG_DC2EN 0x80       // Bit 7: Enable DC2
-#define ACR0_FLAG_V20VEN 0x40      // Bit 6: Enable V20V
-#define ACR0_FLAG_XCLKEN 0x20      // Bit 5: Enable XCLK
-#define ACR0_FLAG_V20VCLIMIT 0x10  // Bit 4: V20V Current Limit
-#define ACR0_FLAG_TRIGEN 0x08      // Bit 3: Trigger Enable
+// Analog Control Register 0 (address 0x01), datasheet table 16 p.54:
+//   Bit 7   Bit 6    Bit 5   Bit 4    Bit 3    Bit 2..0
+//   -       V20VEN   DC2EN   XCLKEN   TRIGEN   V20VCLIMIT
+//   0       1        1       1        0        100          <- reset = 0x74
+// The previous definitions here were shifted one position up (DC2EN 0x80,
+// XCLKEN 0x20, V20VCLIMIT as a single bit 0x10) and did not match the device.
+// Confirmed against hardware: a readback of ACR0 on an untouched NCN5130
+// returns 0x74, the documented reset value, which only decodes sensibly with
+// the assignment below.
+#define ACR0_FLAG_V20VEN 0x40       // Bit 6: enable the V20V regulator
+#define ACR0_FLAG_DC2EN 0x20        // Bit 5: enable DC2
+#define ACR0_FLAG_XCLKEN 0x10       // Bit 4: enable the XCLK pin
+#define ACR0_FLAG_TRIGEN 0x08       // Bit 3: transmit trigger
+#define ACR0_MASK_V20VCLIMIT 0x07   // Bit 2..0: 20 V LDO current limit
+#define ACR0_V20VCLIMIT_RESET 0x04  // reset value of that field
+#define ACR0_RESET_VALUE 0x74       // table 16, for comparison against a readback
 
 namespace TPUart
 {

@@ -55,6 +55,7 @@ namespace TPUart
 
         _interface->end(); // End interface is already initialized
         _interface->begin(baudrate);
+        _lastHostRequestAt = millis();
         _interface->write(U_RESET_REQ);
         unsigned long start = millis();
         do
@@ -77,6 +78,10 @@ namespace TPUart
 
     void DataLinkLayer::reset()
     {
+        // Disarm any pending register read: after a reset the next byte from the
+        // device is U_Reset.ind, and claiming that as a register value would
+        // skip receivedReset() and with it the reconfiguration that follows.
+        _regReadPending = false;
         if (_bcuState == BCU_UNINITIALIZED) return;
         printMessage("Reset BCU");
 
@@ -95,6 +100,11 @@ namespace TPUart
         // we just re-armed the link.
         setBCUState(BCU_CONNECTED);
 
+        // Stamped: this reset request is answered by U_Reset.ind, and the state
+        // flips to CONNECTED one line above — so a parked register read could
+        // otherwise arm on this very pass and swallow it, skipping
+        // receivedReset() and the reconfiguration that follows.
+        _lastHostRequestAt = millis();
         _interface->write(U_RESET_REQ);
         _modeExtendedCRC = false;
         _lastDiscardedBytes = 0;
@@ -321,9 +331,30 @@ namespace TPUart
         // line above will flip us back to CONNECTED.
         if (_bcuState == BCU_DISCONNECTED && (millis() - _requestStateTimer) > 1000)
         {
+            _lastHostRequestAt = millis();
             _interface->write(U_STATE_REQ);
             if (_bcuType == BCU_NCN5120) _interface->write(U_SYSTEM_STATE_REQ);
             _requestStateTimer = millis();
+        }
+
+        // Disarm an unanswered register read: leaving the receiver armed would
+        // cost the next unrelated byte, which is a worse trade than losing the
+        // reading.
+        if (_regReadPending && millis() - _regReadSentAt > TPUART_REGREAD_TIMEOUT)
+        {
+            // Under the lock: the receive task must not claim a byte between the
+            // decision to give up and the disarm, which would hand back a value
+            // for a read that had already been written off. A failed try-lock
+            // just defers the disarm to the next pass.
+            if (rxLock())
+            {
+                if (_regReadPending)
+                {
+                    _regReadPending = false;
+                    _regReadTimeouts++;
+                }
+                rxUnlock();
+            }
         }
 
         exitBusyModeTimer();
@@ -472,6 +503,9 @@ namespace TPUart
         // printMessage("requestState");
 
         txLock(true);
+        // Stamped before the write: a register read armed between here and the
+        // answers would swallow them (see TPUART_REGREAD_QUIET_MS).
+        _lastHostRequestAt = millis();
         _interface->write(U_STATE_REQ);
         if (_bcuType == BCU_NCN5120) _interface->write(U_SYSTEM_STATE_REQ);
         txUnlock();
@@ -484,6 +518,12 @@ namespace TPUart
      */
     void DataLinkLayer::applyConfiguration()
     {
+        // These writes are answered with U_Configure.ind. Stamped for the same
+        // reason as the state request: a register read armed in the gap would
+        // take the first answer for its own. Matters on the setOwnAddress()
+        // path, which runs at any time when ETS assigns a new address.
+        _lastHostRequestAt = millis();
+
         if (_bcuState == BCU_UNINITIALIZED) return;
         if (_bcuState == BCU_BUSMONITOR) return;
 
@@ -602,28 +642,40 @@ namespace TPUart
      * Note that the setting survives a restart of the host system and a reset of the BCU.
      * Anyone using this function should therefore re-enable the power supply on boot of the host system.
      *
-     * BROKEN AS MEASURED — do not build on this. Marked [[deprecated]] in the
-     * header rather than deleted: this stack is vendored from upstream, and the
-     * finding below is what we measured on our own boards, not a proof that the
-     * service is broken in general.
+     * WORKS, verified on hardware — see the measurement at the end.
      *
      * Measured 2026-08-17 on TUL (ESP32-C3) and TUL2 (ESP32-C6), both NCN5130,
-     * both with live bus power: calling this with state=false writes ACR0
-     * without DC2EN *and* without V20VEN, yet neither VDD2 nor V20V ever
-     * dropped in the system state — which the stack re-reads every second via
-     * processRequestState(). Reproduced twice, including once with VDD2 high as
-     * the starting point, so it is not a case of "already off".
+     * both with live bus power: calling this with state=false left VDD2 and
+     * V20V high in the system state, which the stack re-reads every second via
+     * processRequestState(). That was read as "the ACR0 write is ignored", with
+     * an unverified suspicion about bytes bypassing the transmitter queue.
      *
-     * The frame itself matches the datasheet (p.39 fig.42: U_IntRegWr.req is
-     * 0b001010aa followed by the data byte; ACR0 is aa=01, i.e. 0x29), so the
-     * encoding is not the problem. Unverified suspicion: these bytes go out via
-     * _interface->write() directly, bypassing the transmitter queue, so they can
-     * land between the bytes of a frame that is being sent. Confirming that needs
-     * a capture of the TX line, which the closed stick does not expose.
+     * Root cause found 2026-08-30, once an ACR0 readback existed: the bit masks
+     * in Types.h were shifted one position — DC2EN sat at 0x80 while the device
+     * has it at bit 5 (table 16, p.54). So state=false sent 0x30, which still
+     * has DC2EN *set*. VDD2 staying up was the correct answer to what was
+     * actually asked. The masks are corrected now.
      *
-     * Nothing in this project calls it; the KNX stack never touches ACR0 either
-     * (applyConfiguration() writes CRC/address/repetition only). Whoever wants
-     * DC2 or V20V control has to settle the above first.
+     * Measured 2026-08-31 with writeInternalRegister() + a readback, on a live
+     * bus: ACR0 0x74 -> 0x54 makes VDD2 go low within ~2 s and back up when the
+     * register is restored; 0x74 -> 0x34 does the same to V20V. Both rails do
+     * follow their enable bits, and the write does arrive — so the remaining
+     * difference to the 2026-08-17 attempt is this function itself: it writes
+     * straight into the UART with no check that the line is idle, so its two
+     * bytes can land inside a frame. writeInternalRegister() refuses unless the
+     * receiver, the search buffer and the transmitter are all quiet, which is
+     * the likely reason it lands where powerControl() did not (plausible, not
+     * proven — the losing case was not re-measured).
+     *
+     * That is what it does now: the write goes through writeInternalRegister()
+     * and a readback is queued behind it. Verified 2026-08-31 on the C3 bench
+     * stick via the NCN_DC2_DIAG harness — powerControl(false) reads ACR0 back
+     * as 0x14 with V20V and VDD2 both low, powerControl(true) restores 0x74 and
+     * both rails come back. The KNX stack itself still never touches ACR0
+     * (applyConfiguration() writes CRC, address and repetition only).
+     *
+     * Caveat that outlives the fix: false means the line was busy and nothing
+     * was written — retry, do not assume.
      */
     bool DataLinkLayer::powerControl(bool state)
     {
@@ -631,21 +683,152 @@ namespace TPUart
         // if (_bcuState == BCU_BUSMONITOR) return false;
         if (_bcuType != BCU_NCN5120) return false;
 
-        rxLock(true); // Prevent sending ACKs during sending multi bytes multibytes
-        _interface->write(U_INT_REG_WR_REQ_ACR0);
-        if (state)
-        {
-            printMessage("VCC2 power enabled");
-            _interface->write(ACR0_FLAG_DC2EN | ACR0_FLAG_V20VEN | ACR0_FLAG_XCLKEN | ACR0_FLAG_V20VCLIMIT);
-        }
-        else
-        {
-            printMessage("VCC2 power disabled");
-            _interface->write(ACR0_FLAG_XCLKEN | ACR0_FLAG_V20VCLIMIT);
-        }
-        rxUnlock();
+        // state=true restores the documented ACR0 reset value (0x74); state=false
+        // clears DC2EN *and* V20VEN, so it takes the 20 V regulator down with
+        // DC2 and the device cannot drive the bus until it is switched back on.
+        const uint8_t value = state
+            ? (uint8_t)(ACR0_FLAG_DC2EN | ACR0_FLAG_V20VEN | ACR0_FLAG_XCLKEN | ACR0_V20VCLIMIT_RESET)
+            : (uint8_t)(ACR0_FLAG_XCLKEN | ACR0_V20VCLIMIT_RESET);
+
+        // Goes through writeInternalRegister() rather than writing the two bytes
+        // straight into the UART: they must not land inside a frame. A refusal
+        // means the line was busy and *nothing* was written — call again from
+        // loop() until it returns true, do not assume the change took effect.
+        if (!writeInternalRegister(U_INT_REG_WR_REQ_ACR0, value)) return false;
+
+        printMessage(state ? "VCC2 power enabled" : "VCC2 power disabled");
+
+        // A register write is never acknowledged, so ask for a readback. Best
+        // effort by design: it is refused if the line is not quiet, and the
+        // caller is expected to check internalRegisterValid()/Value() — or to
+        // ask again — rather than treat the write as confirmed.
+        requestInternalRegister(U_INT_REG_RD_REQ_ACR0);
 
         requestState();
+        return true;
+    }
+
+    /*
+     * Read one internal device-specific register (DS p.39 fig.43: U_IntRegRd.req
+     * is 0b001110aa, so ACR0 with aa=01 is 0x39). The device answers with the
+     * register content as a plain data byte and marks it in no way at all, which
+     * is why the stack never had a read: the byte has to be claimed before the
+     * frame decoder sees it, or a value like 0xB0 parses as a telegram start
+     * ((0xB0 & L_DATA_MASK) == L_DATA_STANDARD_IND).
+     *
+     * The request therefore only goes out on a quiet line — nothing being
+     * received, nothing in the search buffer, nothing being transmitted. Traffic
+     * arriving in the gap between request and answer is still possible, so the
+     * caller has to treat a single reading as evidence, not as proof; repeating
+     * it costs nothing.
+     */
+    bool DataLinkLayer::requestInternalRegister(uint8_t readRequestByte)
+    {
+        if (_bcuType != BCU_NCN5120) return false;
+        // CONNECTED only: while DISCONNECTED the stack poll and the watchdog
+        // reset are in flight, and an armed read would eat the U_Reset.ind that
+        // drives handleReset()/applyConfiguration().
+        if (_bcuState != BCU_CONNECTED) return false;
+        if (_regReadPending) return false;
+        if (!quietForRegisterAccess()) return false;
+
+        if (!rxLock()) return false;
+        // Re-check under the lock: the receive task may have taken a byte
+        // between the check above and here.
+        if (!quietForRegisterAccess())
+        {
+            rxUnlock();
+            return false;
+        }
+        _regReadValid = false;
+        _regReadRequest = readRequestByte;
+        _regReadSentAt = millis();
+        // Armed before the write, never after: the answer can be back before
+        // the next statement runs.
+        _regReadPending = true;
+        _interface->write(readRequestByte);
+        rxUnlock();
+        return true;
+    }
+
+    /*
+     * True when nothing else is on the wire in either direction. A register
+     * answer carries no service marker, so whatever arrives first is taken for
+     * it — every one of these conditions exists to make sure that "whatever"
+     * really is the answer:
+     *   - receiver mid-frame or holding bytes    -> a frame byte would be taken
+     *   - transmitter busy                       -> our bytes land inside a frame
+     *   - bytes already waiting in the driver    -> stale byte claimed as answer
+     *   - within the answer window of a state request -> U_State.ind claimed
+     */
+    bool DataLinkLayer::quietForRegisterAccess()
+    {
+        if (_receiver._state != RX_IDLE) return false;
+        if (_receiver.getSearchBufferPosition() > 0) return false;
+        if (_transmitter.isTransmitting() || _transmitter.awaitResponse()) return false;
+        if (_interface->available()) return false;
+        if (millis() - _lastHostRequestAt < TPUART_REGREAD_QUIET_MS) return false;
+        return true;
+    }
+
+    /*
+     * Write one internal device-specific register (DS p.39 fig.42: U_IntRegWr.req
+     * is 0b001010aa followed by the data byte; ACR0 is aa=01, i.e. 0x29).
+     *
+     * Same quiet-line requirement as the read, and for the same reason: these
+     * bytes go straight out via _interface->write(), so they must not be issued
+     * while a frame is in flight. There is no acknowledgement of any kind for a
+     * register write — the only way to know it landed is to read the register
+     * back, which is what makes requestInternalRegister() the other half of this.
+     */
+    bool DataLinkLayer::writeInternalRegister(uint8_t writeRequestByte, uint8_t value)
+    {
+        if (_bcuType != BCU_NCN5120) return false;
+        if (_bcuState != BCU_CONNECTED) return false;
+        if (_regReadPending) return false;
+        if (!quietForRegisterAccess()) return false;
+
+        if (!rxLock()) return false;
+        if (!quietForRegisterAccess())
+        {
+            rxUnlock();
+            return false;
+        }
+        // Deliberately NOT stamped: a register write produces no answer, so
+        // there is nothing for the quiet window to protect — and stamping here
+        // made the readback that callers queue right afterwards impossible.
+        _interface->write(writeRequestByte);
+        _interface->write(value);
+        rxUnlock();
+        return true;
+    }
+
+    /*
+     * Claim the answer byte. Called from the receive path before any decoding.
+     */
+    bool DataLinkLayer::consumeInternalRegisterByte(char value)
+    {
+        if (!_regReadPending) return false;
+
+        // Never claim U_Reset.ind. reset() disarms a pending read for the resets
+        // we ourselves ask for, but the transceiver can reset on its own — a bus
+        // brown-out does it, which is exactly the situation where the fault
+        // capture is arming reads. Swallowing that byte skips receivedReset()
+        // and with it applyConfiguration(), leaving the device running without
+        // CRC-CCITT while this side still expects it: every telegram then fails
+        // its checksum and is dropped, and nothing recovers, because the bytes
+        // keep arriving so the link never looks disconnected.
+        //
+        // The cost of the exception is one lost reading in the case where ACR0
+        // genuinely holds 0x03 — which would mean XCLKEN and both regulators
+        // off, a device that cannot run. A missed reading retries; a deaf bus
+        // does not.
+        if ((uint8_t)value == U_RESET_IND) return false;
+
+        _regReadValue = (uint8_t)value;
+        _regReadAt = millis();
+        _regReadValid = true;
+        _regReadPending = false;
         return true;
     }
 

@@ -35,6 +35,24 @@
 #define TPUART_REINIT_INTERVAL 2000
 #endif
 
+#ifndef TPUART_REGREAD_QUIET_MS
+// A register read may only be armed once the device has had time to answer
+// everything else that was asked of it. The state request pair goes out once a
+// second from processRequestState(); its answers arrive within well under a
+// millisecond, but they carry no marker that distinguishes them from a register
+// answer — so arming inside that window would claim U_State.ind (0x07) as the
+// register value, which decodes as "DC2EN off": exactly the false reading this
+// whole mechanism exists to prevent.
+#define TPUART_REGREAD_QUIET_MS 25
+#endif
+
+#ifndef TPUART_REGREAD_TIMEOUT
+// An unanswered register read leaves the receiver armed to swallow the next
+// byte, so the window is kept short: at 38400 baud the answer is back within
+// a fraction of a millisecond.
+#define TPUART_REGREAD_TIMEOUT 50
+#endif
+
 // Max KNX TP frame length (extended frame). RX reassembly bounds the per-frame
 // stack buffer against this so a corrupt/desynced length prefix cannot size a
 // huge VLA (stack smash). 263 = 9-byte L_Data_Extended header + 254-byte APDU.
@@ -68,6 +86,20 @@ namespace TPUart
         volatile BcuType _bcuType;
         volatile BcuState _bcuState = BCU_UNINITIALIZED;
         volatile uint _baudrate = 0;
+
+        // Internal register read (NCN5130 U_IntRegRd.req, DS p.39 fig.43). The
+        // answer is a bare data byte carrying no service marker of its own, so
+        // a request arms the receiver to hand the *next* byte over here instead
+        // of decoding it. Single-slot on purpose: one outstanding read at a time.
+        volatile bool _regReadPending = false;
+        volatile bool _regReadValid = false;
+        volatile uint8_t _regReadRequest = 0;
+        volatile uint8_t _regReadValue = 0;
+        volatile unsigned long _regReadSentAt = 0;
+        volatile unsigned long _regReadAt = 0;
+        volatile unsigned int _regReadTimeouts = 0;
+        // When the host last sent something the device will answer unprompted.
+        volatile unsigned long _lastHostRequestAt = 0;
 
         // Overflow
         volatile bool _rxSearchBufferOverflow = false;
@@ -113,6 +145,7 @@ namespace TPUart
         void showDiscardedError();
         void showSystemState();
         void processRequestState();
+        bool quietForRegisterAccess();
 
         void tryInitialize();
         bool tryInitialize(uint baudrate);
@@ -153,13 +186,35 @@ namespace TPUart
         Receiver &getReceiver();
         Transmitter &getTransmitter();
 
-        // BROKEN on the NCN5130 boards in this project — see the measurements in
-        // DataLinkLayer.cpp before you build anything on top of it. Kept (not
-        // deleted) because this stack is vendored from upstream and the finding
-        // is specific to the hardware measured here, not proven in general.
-        [[deprecated("powerControl() had no measurable effect on our NCN5130 hardware "
-                     "(ACR0 write ignored) — see the comment above its implementation")]]
+        // Switches DC2 and the V20V regulator via ACR0. Two things to know
+        // before calling: state=false takes the 20 V regulator down together
+        // with DC2, so the device cannot drive the bus until it is switched back
+        // on; and false is returned when the line was busy, in which case
+        // nothing was written at all — retry from loop(), do not assume.
+        // Verified on hardware 2026-08-31 (C3 + NCN5130): 0x74 -> 0x14 pulls
+        // VDD2 and V20V down, and back up on the way home.
         bool powerControl(bool state);
+        // Read one internal NCN5130 register (pass U_INT_REG_RD_REQ_ACR0 etc.).
+        // Returns false when the request was not issued — wrong BCU type, link
+        // down, a read already outstanding, or the line not idle. The answer is
+        // unmarked, so it is only issued while nothing else is in flight; poll
+        // internalRegisterValid() afterwards.
+        bool requestInternalRegister(uint8_t readRequestByte);
+        bool internalRegisterPending() const { return _regReadPending; }
+        bool internalRegisterValid() const { return _regReadValid; }
+        uint8_t internalRegisterRequest() const { return _regReadRequest; }
+        uint8_t internalRegisterValue() const { return _regReadValue; }
+        unsigned long internalRegisterReadAt() const { return _regReadAt; }
+        unsigned int internalRegisterTimeouts() const { return _regReadTimeouts; }
+        // Called from the receive path before any decoding; true = byte consumed.
+        bool consumeInternalRegisterByte(char value);
+
+        // Write one internal register (pass U_INT_REG_WR_REQ_ACR0 etc.). Same
+        // idle-line rule as the read: the two bytes must not land inside a frame
+        // that is going out. Returns false when it was not issued. Always read
+        // the register back afterwards — a write that never arrives is silent.
+        bool writeInternalRegister(uint8_t writeRequestByte, uint8_t value);
+
         bool stopMode(bool state);
         bool busyMode(bool state);
         void setOwnAddress(short address);

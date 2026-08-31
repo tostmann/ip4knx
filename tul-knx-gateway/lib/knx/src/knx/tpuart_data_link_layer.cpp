@@ -139,14 +139,12 @@ DptMedium TpUartDataLinkLayer::mediumType() const
     return DptMedium::KNX_TP1;
 }
 
-void TpUartDataLinkLayer::powerControl(bool state)
+bool TpUartDataLinkLayer::powerControl(bool state)
 {
-    // Deliberate forward to a deprecated call — this wrapper is the deprecated
-    // API, so the warning belongs at its callers, not here.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    _tpuart.powerControl(state);
-#pragma GCC diagnostic pop
+    // Returns what the layer below reports: false means the line was busy and
+    // nothing was written. The old void signature swallowed exactly that, so a
+    // refused write was indistinguishable from a successful one.
+    return _tpuart.powerControl(state);
 }
 
 TpUartDataLinkLayer::TpUartDataLinkLayer(DeviceObject &devObj,

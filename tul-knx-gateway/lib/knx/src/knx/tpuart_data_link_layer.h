@@ -52,11 +52,11 @@ class TpUartDataLinkLayer : public DataLinkLayer
     bool isBusy();
     void resetStats();
 
-    // Forwards to TPUart::DataLinkLayer::powerControl(), which had no measurable
-    // effect on our NCN5130 hardware — see the comment on its implementation.
-    [[deprecated("powerControl() had no measurable effect on our NCN5130 hardware "
-                 "(ACR0 write ignored) — see TPUart/DataLinkLayer.cpp")]]
-    void powerControl(bool state);
+    // Forwards to TPUart::DataLinkLayer::powerControl(). Returns false when the
+    // write was refused because the line was busy — nothing was written then,
+    // so retry rather than assume. state=false clears DC2EN and V20VEN, which
+    // takes the 20 V regulator down with DC2.
+    bool powerControl(bool state);
 
     TPUart::DataLinkLayer& getTPUart()
     {

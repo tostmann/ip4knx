@@ -20,6 +20,7 @@
 #include <knx/ip_data_link_layer.h>
 
 #include <TPUart/Interface/ESP32.h>
+#include <TPUart/Types.h>   // U_INT_REG_RD_REQ_ACR0 / ACR0_FLAG_* for the ACR0 readback
 
 #include <esp_mac.h>   // esp_read_mac() — every target, not just the W5500 ones
 
@@ -304,6 +305,79 @@ static const char* ncnSelfTestText(uint8_t st) {
         default:                return "pending";
     }
 }
+
+// ACR0 readback. A VDD2 bit reading 0 is ambiguous: either the DC2 regulator is
+// genuinely out of range, or DC2EN in ACR0 is simply off — and ACR0 survives a
+// host reset, so a stuck bit looks exactly like broken hardware across reboots.
+// Reading ACR0 back tells the two apart. The falling edge triggers a read on its
+// own, because the interesting moment rarely coincides with someone watching.
+// Single-byte/bool state, written by loop() and read by the async_tcp task:
+// aligned 8/32-bit loads are atomic on RV32, no tearing.
+volatile bool     acr0ReadRequested = false;   // a read is wanted
+volatile bool     acr0FaultPending  = false;   // the pending read belongs to a VDD2 edge
+volatile bool     acr0HaveReading   = false;
+volatile uint8_t  acr0Value         = 0;
+volatile unsigned long acr0ReadAtMs = 0;
+// Kept apart from the rolling reading so a later manual or boot read cannot
+// overwrite the one taken when VDD2 actually dropped.
+volatile bool     acr0HaveFault     = false;
+volatile uint8_t  acr0FaultValue    = 0;
+volatile unsigned long acr0FaultAtMs = 0;
+// A fault reading is only believed once two consecutive reads agree. The answer
+// to a register read carries no marker of its own, so a single reading can in
+// principle be some other byte that arrived first — and a wrong value frozen
+// into fault_capture would be worse than no value at all, because it reads as
+// hard evidence.
+#define ACR0_FAULT_MAX_ATTEMPTS 12
+volatile bool     acr0FaultHaveFirst  = false;
+volatile uint8_t  acr0FaultFirstValue = 0;
+volatile uint8_t  acr0FaultAttempts   = 0;
+
+// Render the ACR0 block for /api/status. Split out so the "no data link layer"
+// branch reports the same shape instead of omitting the key.
+static String acr0StatusJson(unsigned int timeouts) {
+    String j = "{\"valid\":";
+    j += acr0HaveReading ? "true" : "false";
+    if (acr0HaveReading) {
+        const uint8_t v = acr0Value;
+        char hex[8];
+        snprintf(hex, sizeof(hex), "0x%02X", v);
+        j += ",\"hex\":\"" + String(hex) + "\"";
+        j += ",\"value\":" + String(v);
+        j += ",\"dc2en\":"      + String((v & ACR0_FLAG_DC2EN)      ? "true" : "false");
+        j += ",\"v20ven\":"     + String((v & ACR0_FLAG_V20VEN)     ? "true" : "false");
+        j += ",\"xclken\":"     + String((v & ACR0_FLAG_XCLKEN)     ? "true" : "false");
+        j += ",\"v20vclimit\":" + String(v & ACR0_MASK_V20VCLIMIT);
+        j += ",\"trigen\":"     + String((v & ACR0_FLAG_TRIGEN)     ? "true" : "false");
+        j += ",\"is_reset_value\":" + String(v == ACR0_RESET_VALUE ? "true" : "false");
+        j += ",\"age_ms\":" + String((unsigned long)(millis() - acr0ReadAtMs));
+    }
+    j += ",\"timeouts\":" + String(timeouts);
+    // The reading taken while VDD2 was low, kept for as long as the device runs.
+    j += ",\"fault_capture\":";
+    if (acr0HaveFault) {
+        char fhex[8];
+        snprintf(fhex, sizeof(fhex), "0x%02X", acr0FaultValue);
+        j += "{\"hex\":\"" + String(fhex) + "\"";
+        j += ",\"dc2en\":" + String((acr0FaultValue & ACR0_FLAG_DC2EN) ? "true" : "false");
+        j += ",\"age_ms\":" + String((unsigned long)(millis() - acr0FaultAtMs)) + "}";
+    } else {
+        j += "null";
+    }
+    j += "}";
+    return j;
+}
+
+#ifdef NCN_ACR0_WRITE_TEST
+// Bench only, never in a shipped build: writing ACR0 can switch DC2 or the V20V
+// regulator off, and the register survives a host reset. Every write therefore
+// schedules its own restore in loop(), so the board recovers even if the write
+// takes the network with it and no second request can be sent.
+volatile bool     acr0WritePending  = false;
+volatile uint8_t  acr0WriteValue    = 0;
+volatile uint8_t  acr0RestoreValue  = ACR0_RESET_VALUE;
+volatile unsigned long acr0RestoreAt = 0;   // millis deadline, 0 = nothing scheduled
+#endif
 
 // H2: KNX progMode is mutated only from loop() (the main task). Web handlers run
 // in the async_tcp task; toggling the stack from there races knx.loop(). The
@@ -1036,6 +1110,40 @@ void setup() {
                               sys.vfilt() ? '+' : '-',
                               sys.xtal()  ? '+' : '-',
                               sys.thermalWarning() ? '!' : ' ');
+                // Reference reading while the rails are healthy. A value taken
+                // during a fault is only worth something next to a known-good
+                // one, and boot is the one moment the line is reliably quiet.
+                if (tp.requestInternalRegister(U_INT_REG_RD_REQ_ACR0)) {
+                    unsigned long t0 = millis();
+                    while (millis() - t0 < 100 && !tp.internalRegisterValid()) {
+                        knx.loop();
+                        delay(2);
+                    }
+                    if (tp.internalRegisterValid()) {
+                        const uint8_t v = tp.internalRegisterValue();
+                        acr0Value = v;
+                        acr0ReadAtMs = tp.internalRegisterReadAt();
+                        acr0HaveReading = true;
+                        Serial.printf("ACR0 : 0x%02X (V20VEN%c DC2EN%c XCLKEN%c TRIGEN%c CLIMIT=%d)%s\n",
+                                      v,
+                                      (v & ACR0_FLAG_V20VEN) ? '+' : '-',
+                                      (v & ACR0_FLAG_DC2EN)  ? '+' : '-',
+                                      (v & ACR0_FLAG_XCLKEN) ? '+' : '-',
+                                      (v & ACR0_FLAG_TRIGEN) ? '+' : '-',
+                                      v & ACR0_MASK_V20VCLIMIT,
+                                      v == ACR0_RESET_VALUE ? "  [reset value]" : "");
+                    } else {
+                        // Issued but unanswered — retry from loop(), same as a
+                        // refused one, so the reference reading is not lost.
+                        Serial.println("ACR0 : no answer within 100 ms, retrying from loop()");
+                        acr0ReadRequested = true;
+                    }
+                } else {
+                    // Busy line, quiet window, or link not connected yet — the
+                    // loop() path retries, so the reference reading is not lost.
+                    Serial.println("ACR0 : not issued yet, retrying from loop()");
+                    acr0ReadRequested = true;
+                }
                 ncnSelfTest = sys.vbus() ? NCN_ST_OK : NCN_ST_OK_NO_VBUS;
                 Serial.println(sys.vbus() ? "Result: OK" : "Result: OK (no VBUS!)");
             } else {
@@ -1062,20 +1170,45 @@ void setup() {
         if (dl) {
             auto& tp = dl->getTPUart();
             auto& sys = tp.getSystemState();
-            auto settle = [&]() { for (int i = 0; i < 100; i++) { knx.loop(); delay(20); } };
-            Serial.printf("as-found        : VDD2=%d V20V=%d VFILT=%d VBUS=%d XTAL=%d mode=%s\n",
-                          sys.vdd2(), sys.v20v(), sys.vfilt(), sys.vbus(), sys.xtal(), sys.modeString());
-            // powerControl() is deprecated because it does not work — probing
-            // exactly that is the point of this harness, so silence the warning.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-            dl->powerControl(false);          // ACR0 without DC2EN
-            settle();
-            Serial.printf("after DC2EN=0   : VDD2=%d\n", sys.vdd2());
-            dl->powerControl(true);           // ACR0 with DC2EN|V20VEN|XCLKEN|V20VCLIMIT
-#pragma GCC diagnostic pop
-            settle();
-            Serial.printf("after DC2EN=1   : VDD2=%d\n", sys.vdd2());
+            auto pump = [&](unsigned long ms) {
+                unsigned long t0 = millis();
+                while (millis() - t0 < ms) { knx.loop(); delay(5); }
+            };
+            // powerControl() reports false while the line is busy and writes
+            // nothing at all in that case, so retry instead of assuming.
+            auto call = [&](bool on) {
+                for (int i = 0; i < 100; i++) {
+                    if (dl->powerControl(on)) return true;
+                    pump(20);
+                }
+                return false;
+            };
+            auto show = [&](const char *tag) {
+                Serial.printf("%-16s ACR0=0x%02X%s | V20V=%d VDD2=%d VFILT=%d VBUS=%d mode=%s\n",
+                              tag, tp.internalRegisterValue(),
+                              tp.internalRegisterValid() ? "" : " (no fresh read)",
+                              sys.v20v(), sys.vdd2(), sys.vfilt(), sys.vbus(), sys.modeString());
+            };
+
+            tp.requestInternalRegister(U_INT_REG_RD_REQ_ACR0);
+            pump(300);
+            show("as-found");
+
+            bool offOk = call(false);   // clears DC2EN and V20VEN
+            pump(2500);
+            show(offOk ? "after off" : "off REFUSED");
+
+            bool onOk = call(true);     // back to the reset value 0x74
+            pump(2500);
+            show(onOk ? "after on" : "on REFUSED");
+
+            if (!onOk) {
+                // Never leave the bench with the regulators off.
+                Serial.println("!! restore failed, retrying until it takes");
+                for (int i = 0; i < 200 && !dl->powerControl(true); i++) pump(50);
+                pump(2000);
+                show("after retry");
+            }
         } else {
             Serial.println("no DL layer");
         }
@@ -1311,6 +1444,61 @@ void setup() {
         request->send(200, "application/json", json);
     });
 
+    // Manual ACR0 readback. The read itself has to happen on the main task
+    // (it touches the NCN link), so this only asks; /api/status carries the
+    // answer one poll cycle later.
+    server.on("/api/ncn/acr0", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!mutationAllowed(request)) return;
+        acr0ReadRequested = true;
+        Serial.println("ACR0 readback requested via web (applied in loop)");
+        request->send(202, "application/json",
+                      "{\"queued\":true,\"hint\":\"read acr0 from /api/status\"}");
+    });
+
+#ifdef NCN_ACR0_WRITE_TEST
+    // Bench harness: write ACR0, then let loop() put it back. restore_ms is
+    // capped and never optional — an unattended board must not be left with a
+    // regulator switched off.
+    // Deliberately not "/api/ncn/acr0/write": AsyncCallbackWebHandler treats a
+    // registered URI as a prefix (url.startsWith(_uri + "/")), so the readback
+    // handler above would answer this path instead — measured, not assumed.
+    server.on("/api/ncn/acr0_write", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!mutationAllowed(request)) return;
+        if (!request->hasParam("value", true) && !request->hasParam("value")) {
+            request->send(400, "application/json", "{\"error\":\"value required\"}");
+            return;
+        }
+        String vs = request->hasParam("value", true)
+                        ? request->getParam("value", true)->value()
+                        : request->getParam("value")->value();
+        long v = strtol(vs.c_str(), nullptr, 0);
+        if (v < 0 || v > 255) {
+            request->send(400, "application/json", "{\"error\":\"value out of range\"}");
+            return;
+        }
+        long restore = 10000;
+        if (request->hasParam("restore_ms", true))
+            restore = request->getParam("restore_ms", true)->value().toInt();
+        else if (request->hasParam("restore_ms"))
+            restore = request->getParam("restore_ms")->value().toInt();
+        if (restore < 1000)  restore = 1000;
+        if (restore > 60000) restore = 60000;
+
+        // Restore to what is actually there now, falling back to the datasheet
+        // reset value if nothing has been read back yet.
+        acr0RestoreValue = acr0HaveReading ? acr0Value : ACR0_RESET_VALUE;
+        acr0WriteValue = (uint8_t)v;
+        acr0RestoreAt = millis() + (unsigned long)restore;
+        acr0WritePending = true;
+        Serial.printf("ACR0 write test requested: 0x%02X for %ld ms, restore to 0x%02X\n",
+                      (uint8_t)v, restore, acr0RestoreValue);
+        String j = "{\"queued\":true,\"value\":" + String(v) +
+                   ",\"restore_ms\":" + String(restore) +
+                   ",\"restore_value\":" + String(acr0RestoreValue) + "}";
+        request->send(202, "application/json", j);
+    });
+#endif
+
     server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
         String json = "{";
         
@@ -1391,7 +1579,9 @@ void setup() {
             json += "\"vfilt\":" + String(sys.vfilt() ? "true" : "false") + ",";
             json += "\"xtal\":"  + String(sys.xtal()  ? "true" : "false") + ",";
             json += "\"thermal_warning\":" + String(sys.thermalWarning() ? "true" : "false") + ",";
-            json += "\"self_test\":\"" + String(ncnSelfTestText(ncnSelfTest)) + "\"";
+            json += "\"self_test\":\"" + String(ncnSelfTestText(ncnSelfTest)) + "\",";
+            json += "\"rx_discarded\":" + String(stats.getRxDiscardedBytes()) + ",";
+            json += "\"acr0\":" + acr0StatusJson(tp.internalRegisterTimeouts());
             json += "}";
         } else {
             json += "\"rx_bytes\":0,";
@@ -1403,7 +1593,9 @@ void setup() {
                     "\"connected\":false,\"baud\":0,\"mode\":\"-\","
                     "\"v20v\":false,\"vdd2\":false,\"vbus\":false,\"vfilt\":false,"
                     "\"xtal\":false,\"thermal_warning\":false,";
-            json += "\"self_test\":\"" + String(ncnSelfTestText(ncnSelfTest)) + "\"}";
+            json += "\"self_test\":\"" + String(ncnSelfTestText(ncnSelfTest)) + "\",";
+            json += "\"rx_discarded\":0,";
+            json += "\"acr0\":" + acr0StatusJson(0) + "}";
         }
 
         // Build info
@@ -1673,14 +1865,162 @@ void loop() {
         uint8_t now = NCN_ST_NO_DL;
         if (tpDl) {
             auto& tp = tpDl->getTPUart();
+            auto& sys = tp.getSystemState();
             now = !tp.isConnected()               ? NCN_ST_NO_UART
-                : tp.getSystemState().vbus()      ? NCN_ST_OK
+                : sys.vbus()                      ? NCN_ST_OK
                                                   : NCN_ST_OK_NO_VBUS;
+
+            // --- ACR0 readback, see the globals for why ---------------------
+            // Arm on the falling edge of VDD2. Per DS p.23 a VFILT brown-out
+            // takes DC2 and V20V down together, so V20V staying high already
+            // points away from the supply; ACR0 then says whether DC2EN is off.
+            static bool vdd2Seen = false;
+            static bool vdd2Last = true;
+            if (tp.isConnected()) {
+                const bool v = sys.vdd2();
+                // Two ways in. The falling edge is the obvious one. The other is
+                // finding VDD2 already low on the first look — which is exactly
+                // how the original report presented itself (low across several
+                // reboots, ACR0 surviving each one) and which an edge detector
+                // by construction never sees.
+                // SystemState starts out all-zero, so vdd2() reads false before
+                // the first U_SystemStat.ind has been processed — on a stick
+                // whose bus arrives late that would look like a fault. A real
+                // low has the neighbouring rails reporting in, so require that.
+                const bool railsReporting = sys.vbus() || sys.vfilt() || sys.v20v();
+                const bool edge    = vdd2Seen && vdd2Last && !v;
+                const bool bootLow = !vdd2Seen && !v && railsReporting;
+                if ((edge || bootLow) && !acr0HaveFault && !acr0FaultPending) {
+                    Serial.printf("VDD2 %s (V20V=%d VFILT=%d VBUS=%d) - reading ACR0 back\n",
+                                  edge ? "dropped" : "low on first look",
+                                  sys.v20v(), sys.vfilt(), sys.vbus());
+                    acr0FaultPending = true;
+                    acr0FaultHaveFirst = false;
+                    acr0FaultAttempts = 0;
+                    acr0ReadRequested = true;
+                }
+                // Only a populated SystemState counts as "seen". Recording the
+                // all-zero default would latch vdd2Seen=true with vdd2Last=false,
+                // after which the edge (wants vdd2Last true) and the boot-low
+                // path (wants vdd2Seen false) can both never fire again — the
+                // very case this is here to catch would be lost for the whole
+                // uptime.
+                if (railsReporting) {
+                    vdd2Last = v;
+                    vdd2Seen = true;
+                }
+            }
+
+            // Collect an answered read. internalRegisterReadAt() changes per
+            // answer, which is what distinguishes a fresh value from the last.
+            if (tp.internalRegisterValid() &&
+                tp.internalRegisterRequest() == U_INT_REG_RD_REQ_ACR0) {
+                const unsigned long at = tp.internalRegisterReadAt();
+                if (!acr0HaveReading || at != acr0ReadAtMs) {
+                    const uint8_t v = tp.internalRegisterValue();
+                    acr0Value = v;
+                    acr0ReadAtMs = at;
+                    acr0HaveReading = true;
+                    Serial.printf("ACR0 = 0x%02X (V20VEN=%d DC2EN=%d XCLKEN=%d TRIGEN=%d V20VCLIMIT=%d)\n",
+                                  v, !!(v & ACR0_FLAG_V20VEN), !!(v & ACR0_FLAG_DC2EN),
+                                  !!(v & ACR0_FLAG_XCLKEN), !!(v & ACR0_FLAG_TRIGEN),
+                                  v & ACR0_MASK_V20VCLIMIT);
+                    if (acr0FaultPending) {
+                        if (sys.vdd2()) {
+                            // The rail recovered before the reading could be
+                            // confirmed; it says nothing about the fault.
+                            acr0FaultPending = false;
+                            acr0FaultHaveFirst = false;
+                        } else if (!acr0FaultHaveFirst) {
+                            acr0FaultFirstValue = v;
+                            acr0FaultHaveFirst = true;
+                            acr0ReadRequested = true;   // confirm before believing
+                            Serial.printf("  ^ VDD2 low, first reading 0x%02X - confirming\n", v);
+                        } else if (!(v & ACR0_FLAG_V20VEN) && sys.v20v()) {
+                            // The value says the 20 V regulator is disabled while
+                            // the rail reports it in range — those cannot both be
+                            // true, so this byte is not ACR0. Catches the one
+                            // collision that agreement alone would not: U_State.ind
+                            // is deterministically 0x07, so two of them would
+                            // confirm each other.
+                            Serial.printf("  ^ reading 0x%02X contradicts the V20V rail - discarding\n", v);
+                            acr0FaultHaveFirst = false;
+                        } else if (v == acr0FaultFirstValue) {
+                            acr0FaultValue = v;
+                            acr0FaultAtMs = at;
+                            acr0HaveFault = true;
+                            acr0FaultPending = false;
+                            acr0FaultHaveFirst = false;
+                            Serial.printf("  ^ confirmed 0x%02X with VDD2 low: DC2 is %s\n", v,
+                                          (v & ACR0_FLAG_DC2EN) ? "enabled, so the regulator itself is out of range"
+                                                                : "DISABLED in ACR0 - something switched DC2EN off");
+                        } else {
+                            // Two different values means at least one of them was
+                            // not the register. Throw both away.
+                            Serial.printf("  ^ readings disagree (0x%02X vs 0x%02X) - discarding both\n",
+                                          acr0FaultFirstValue, v);
+                            acr0FaultHaveFirst = false;
+                        }
+                    }
+                }
+            }
+
+#ifdef NCN_ACR0_WRITE_TEST
+            // Restore first: if a write is still queued behind it, the restore
+            // deadline of that write is what counts, not this one.
+            if (acr0RestoreAt != 0 && (long)(millis() - acr0RestoreAt) >= 0) {
+                if (tp.writeInternalRegister(U_INT_REG_WR_REQ_ACR0, acr0RestoreValue)) {
+                    Serial.printf("ACR0 restore -> 0x%02X (rails now V20V=%d VDD2=%d VFILT=%d)\n",
+                                  acr0RestoreValue, sys.v20v(), sys.vdd2(), sys.vfilt());
+                    acr0RestoreAt = 0;
+                    acr0ReadRequested = true;   // prove the restore landed
+                }
+            }
+            if (acr0WritePending) {
+                if (tp.writeInternalRegister(U_INT_REG_WR_REQ_ACR0, acr0WriteValue)) {
+                    Serial.printf("ACR0 write -> 0x%02X (rails before V20V=%d VDD2=%d VFILT=%d)\n",
+                                  acr0WriteValue, sys.v20v(), sys.vdd2(), sys.vfilt());
+                    acr0WritePending = false;
+                    acr0ReadRequested = true;   // did it land?
+                }
+            }
+#endif
+            // An outstanding fault reading keeps asking: a read that timed out
+            // must not quietly forfeit the one measurement worth having. The
+            // bound counts completed attempts; a request that stays parked
+            // because the line never goes quiet retries silently and for free,
+            // which is the behaviour we want on a busy bus.
+            if (acr0FaultPending && !acr0ReadRequested && !tp.internalRegisterPending()) {
+                if (acr0FaultAttempts < ACR0_FAULT_MAX_ATTEMPTS) {
+                    acr0FaultAttempts++;
+                    acr0ReadRequested = true;
+                } else {
+                    Serial.println("ACR0: giving up on the fault reading (no quiet line)");
+                    acr0FaultPending = false;
+                    acr0FaultHaveFirst = false;
+                }
+            }
+
         }
         if (now != ncnSelfTest) {
             Serial.printf("NCN state: %s -> %s\n",
                           ncnSelfTestText(ncnSelfTest), ncnSelfTestText(now));
             ncnSelfTest = now;
+        }
+    }
+
+    // Issuing is attempted on every pass rather than once a second. The guards
+    // refuse while the line is busy, and the stack's own state poll runs at 1 Hz
+    // as well — retrying at 1 Hz could phase-lock against it and never find a
+    // quiet window. At loop speed the next gap is milliseconds away.
+    if (acr0ReadRequested) {
+        auto acrDl = ((Bau091A&)knx.bau()).getSecondaryDataLinkLayer();
+        if (acrDl) {
+            auto& acrTp = acrDl->getTPUart();
+            if (!acrTp.internalRegisterPending() &&
+                acrTp.requestInternalRegister(U_INT_REG_RD_REQ_ACR0)) {
+                acr0ReadRequested = false;
+            }
         }
     }
 

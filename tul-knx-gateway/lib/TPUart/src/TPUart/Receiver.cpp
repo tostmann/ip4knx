@@ -303,6 +303,13 @@ namespace TPUart
     bool Receiver::pushSearchBuffer(const char value)
     {
         // _dll.printMessage("pushSearchBuffer: %02X", value);
+
+        // The answer to U_IntRegRd.req is a bare register byte with no service
+        // marker (DS p.39 fig.43), so it has to be claimed here, ahead of the
+        // frame and control-byte decoders — a value such as 0xB0 would satisfy
+        // (v & L_DATA_MASK) == L_DATA_STANDARD_IND and start a phantom frame.
+        if (_dll.consumeInternalRegisterByte(value)) return true;
+
         if (!_searchBuffer.add(value))
         {
             _dll._rxSearchBufferOverflow = true;
