@@ -1,5 +1,5 @@
 # Expected contents of tul-knx-gateway/tulx32_recovery/ — the recovery system
-# for the TULX32 shop variant, built outside this repository (recovery 1.1.0).
+# for the TULX32 shop variant, built outside this repository (recovery 1.2.0).
 #
 # The recovery bootloader and the recovery image are frozen at delivery: the
 # recovery only ever writes ota_0, and the boards have no USB port, so a wrong
@@ -9,4 +9,4 @@
 # Update these lines deliberately, together with a new recovery release — never
 # to make a failing build pass.
 54c68a4f8cf3e8e4bf4ffa1aaec0536d51c2eb3fb908aa9cd66c2e8450212283  bootloader.bin
-2a85caaac5f0bfa764ada391254a9791f2bc6ba5e6373dcf9947b064306feea9  tulx32_recovery.bin
+3a84d1d059ceae78da508ea16d02c6a6987ad4c70b8913525572e89de5e51bec  tulx32_recovery.bin
