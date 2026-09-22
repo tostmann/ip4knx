@@ -294,10 +294,9 @@ const char index_html[] PROGMEM = R"rawliteral(
                         <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
                         <div style="font-weight:bold; margin-bottom:6px;" data-i18n="firmware.recoveryTitle">Install Firmware</div>
                         <small style="color:#666; display:block; margin-bottom:8px;">
-                            <span data-i18n="firmware.recoveryDescription">This device installs firmware from its recovery system. Download the firmware file, restart into recovery and upload the file there. Without this page: hold the button for 5 seconds while connecting the KNX bus.</span>
+                            <span data-i18n="firmware.recoveryDescription">This device installs firmware from its recovery system: restart into recovery, then press Check online under Install from busware and pick the image — the device downloads and checks it itself. Without this page: hold the button S1 while connecting the KNX bus and keep it held for 5 seconds.</span>
                         </small>
                         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                            <a id="rec_download" class="btn" style="display:none; background:#6c757d; text-decoration:none;" href="#" data-i18n="firmware.downloadFile">Download Firmware File</a>
                             <button id="recovery-btn" class="btn" onclick="enterRecovery()" data-i18n="action.restartRecovery">Restart into Recovery</button>
                         </div>
                         <div id="recovery_status" style="font-size:0.85rem; color:#555; margin-top:6px;"></div>
@@ -392,7 +391,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 'wifi.selectNetwork': 'Wählen Sie ein Netzwerk...', 'action.scanWifi': 'WLAN Netzwerke suchen', 'update.unknown': 'Stand unbekannt — Suche starten.',
                 'wifi.searching': 'Suche läuft...', 'wifi.scanTimeout': 'Scan-Timeout!', 'wifi.scanError': 'Fehler beim Scannen!', 'wifi.ssidRequired': 'SSID darf nicht leer sein!', 'wifi.configurationSaved': 'Konfiguration gespeichert. Das Gateway startet nun neu.', 'error.prefix': 'Fehler: ', 'wifi.sendError': 'Fehler beim Senden!',
                 'update.currentIsLatest': 'Aktuelle Version ist die neueste ({latest}).', 'update.loadingManifest': 'Manifest wird geladen…', 'update.availableMessage': 'Update verfügbar: {latest} (aktuell {current}).', 'update.installing': 'Installation läuft… {progress} / {total} Bytes', 'update.done': 'Erfolgreich — Gateway startet neu. Seite lädt automatisch.', 'update.unknownError': 'unbekannt', 'update.confirm': 'Online-Update jetzt installieren? Das Gateway startet anschließend neu.', 'update.startError': 'Fehler beim Starten: {error}',
-                'recovery.confirm': 'In das Recovery-System neu starten? Das Gateway ist offline, bis Sie die Anwendung wieder starten oder den KNX-Bus neu anschließen.', 'recovery.restarting': 'Neustart in das Recovery-System. Diese Adresse in etwa 20 Sekunden neu laden.', 'recovery.failed': 'Recovery nicht verfügbar: {error}', 'firmware.onlineUpdateDescriptionRecovery': 'Prüft install.busware.de/ip4knx/ auf eine neuere Version. Installiert wird sie über das Recovery-System unten.', 'firmware.recoveryTitle': 'Firmware installieren', 'firmware.recoveryDescription': 'Dieses Gerät installiert Firmware über sein Recovery-System. Firmware-Datei herunterladen, in das Recovery-System neu starten und die Datei dort hochladen. Ohne diese Seite: Taster 5 Sekunden halten und dabei den KNX-Bus anschließen.', 'firmware.downloadFile': 'Firmware-Datei herunterladen', 'action.restartRecovery': 'In Recovery neu starten', 'ota.noFile': 'Keine Datei ausgewählt.', 'ota.calculatingMd5': 'Berechne MD5…', 'ota.md5Failed': 'MD5-Berechnung fehlgeschlagen: {error}', 'ota.uploading': 'MD5 {md5} — Upload läuft…', 'ota.success': 'OTA erfolgreich — Gateway startet neu in ~2 s.', 'ota.failed': 'OTA fehlgeschlagen (HTTP {status})', 'ota.networkError': 'OTA: Netzwerkfehler beim Upload.', 'knx.toggleError': 'Fehler beim Umschalten des Programmier-Modus!', 'knx.active': 'AKTIV', 'knx.off': 'AUS', 'wifi.clearConfirm': 'WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?', 'wifi.cleared': 'WLAN-Daten gelöscht. Das Gateway startet nun im AP-Modus neu.',
+                'recovery.confirm': 'In das Recovery-System neu starten? Das Gateway ist offline, bis Sie die Anwendung wieder starten oder den KNX-Bus neu anschließen.', 'recovery.restarting': 'Neustart in das Recovery-System. Diese Adresse in etwa 20 Sekunden neu laden.', 'recovery.failed': 'Recovery nicht verfügbar: {error}', 'firmware.onlineUpdateDescriptionRecovery': 'Prüft install.busware.de/ip4knx/ auf eine neuere Version. Installiert wird sie über das Recovery-System unten.', 'firmware.recoveryTitle': 'Firmware installieren', 'firmware.recoveryDescription': 'Dieses Gerät installiert Firmware über sein Recovery-System: in das Recovery-System neu starten, dort unter „Install from busware“ auf „Check online“ drücken und das Image wählen – das Gerät lädt und prüft es selbst. Ohne diese Seite: Taster S1 beim Anschließen des KNX-Busses drücken und 5 Sekunden gedrückt halten.', 'action.restartRecovery': 'In Recovery neu starten', 'ota.noFile': 'Keine Datei ausgewählt.', 'ota.calculatingMd5': 'Berechne MD5…', 'ota.md5Failed': 'MD5-Berechnung fehlgeschlagen: {error}', 'ota.uploading': 'MD5 {md5} — Upload läuft…', 'ota.success': 'OTA erfolgreich — Gateway startet neu in ~2 s.', 'ota.failed': 'OTA fehlgeschlagen (HTTP {status})', 'ota.networkError': 'OTA: Netzwerkfehler beim Upload.', 'knx.toggleError': 'Fehler beim Umschalten des Programmier-Modus!', 'knx.active': 'AKTIV', 'knx.off': 'AUS', 'wifi.clearConfirm': 'WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?', 'wifi.cleared': 'WLAN-Daten gelöscht. Das Gateway startet nun im AP-Modus neu.',
                 'knx.yes': 'Ja', 'knx.no': 'Nein', 'status.apMode': 'AP Modus Aktiv', 'status.wifiConnected': 'WLAN Verbunden', 'status.wifiDisconnected': 'WLAN Getrennt', 'status.ethernetActive': 'Ethernet Aktiv', 'status.wifiStandby': 'WLAN Standby'
             }
         };
@@ -579,14 +578,6 @@ const char index_html[] PROGMEM = R"rawliteral(
                 prog.style.display = 'none';
             }
 
-            const dl = document.getElementById('rec_download');
-            if (recoveryMode && d.state === 'available' && d.url) {
-                dl.href = d.url;
-                dl.style.display = '';
-            } else {
-                dl.style.display = 'none';
-            }
-
             checkBtn.disabled   = (d.state === 'checking' || d.state === 'installing');
             installBtn.disabled = (d.state !== 'available');
 
@@ -619,7 +610,6 @@ const char index_html[] PROGMEM = R"rawliteral(
                 });
         }
 
-        let recoveryMode = false;
         function enterRecovery() {
             if (!confirm(t('recovery.confirm'))) return;
             const st = document.getElementById('recovery_status');
@@ -963,7 +953,6 @@ const char index_html[] PROGMEM = R"rawliteral(
                     // Build info
                     if (data.build) {
                         const rec = !!data.build.recovery;
-                        recoveryMode = rec;
                         document.getElementById('ota_manual').style.display = rec ? 'none' : '';
                         document.getElementById('recovery_block').style.display = rec ? '' : 'none';
                         document.getElementById('upd-install-btn').style.display = rec ? 'none' : '';
