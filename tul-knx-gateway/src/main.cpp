@@ -23,6 +23,7 @@
 #include <TPUart/Types.h>   // U_INT_REG_RD_REQ_ACR0 / ACR0_FLAG_* for the ACR0 readback
 
 #include <esp_mac.h>   // esp_read_mac() — every target, not just the W5500 ones
+#include <esp_wifi.h>  // esp_wifi_set_max_tx_power() for the TULX32 cap
 
 // One DHCP identity for the whole device. Without this a stick shows up in the
 // router's lease list under the platform default: the Arduino ETH class sets no
@@ -874,6 +875,24 @@ static bool serviceProgButton() {
     return level;
 }
 
+// ---------------------------------------------------------------------------
+// TULX32 TX power cap. The board lives on KNX bus power, and the coupling
+// current through the 10k FANIN is the bottleneck: KNX traffic plus WLAN held
+// up to 18.5 dBm in the load test, 802.11b at 20 dBm reset the board. The
+// default maximum is 20 dBm. esp_wifi_set_max_tx_power() only takes effect
+// once WiFi is started, so the cap is applied on every STA/AP start and on AP
+// stop, not once before WiFi.mode(). 72 quarter-dBm = 18 dBm.
+// ---------------------------------------------------------------------------
+#ifdef TULX32_BUSPOWERED
+static void capTxPower(const char *why) {
+    esp_err_t err = esp_wifi_set_max_tx_power(72);
+    if (err == ESP_ERR_WIFI_NOT_STARTED) return;   // radio off, nothing to cap
+    int8_t q = 0;
+    esp_wifi_get_max_tx_power(&q);
+    Serial.printf("WiFi: TX power capped at %.2f dBm (%s, %s)\n", q / 4.0, why, esp_err_to_name(err));
+}
+#endif
+
 void setup() {
     // Bus-powered TULX32 hat <40 mA Bus-Strom-Budget (R6=10kΩ FANIN auf
     // NCN5130). 80 MHz CPU ist Kompromiss: 50% Strom-Reduktion vs 160 MHz
@@ -955,20 +974,26 @@ void setup() {
     initEthernet();
 #endif
 
-    // === WiFi-Init mit Markern + TX-Power-Reduktion VOR mode() ===
+    // === WiFi-Init mit Markern ===
     // Bei bus-powered Setup (V20 → DC1 → 3.3V, 40mA Bus-Limit) ist der
-    // RF-Cal-Burst beim WiFi-Hardware-Init kritisch. setTxPower() vor
-    // mode() konfiguriert die PHY-Tabelle bevor die RF aktiv wird.
+    // RF-Cal-Burst beim WiFi-Hardware-Init kritisch. Die Sendeleistung laesst
+    // sich erst nach dem Start begrenzen (siehe capTxPower()).
 
     Serial.println("[A] WiFi.persistent(true)");
     Serial.flush();
     delay(50);
     WiFi.persistent(true);
 
-    Serial.println("[B] WiFi.setTxPower BEFORE mode()");
-    Serial.flush();
-    delay(50);
-    WiFi.setTxPower(WIFI_POWER_8_5dBm);
+#ifdef TULX32_BUSPOWERED
+    // Registered before the first start, so every later start is covered too —
+    // the fallback AP, the return to STA, the Improv path.
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { capTxPower("STA start"); },
+                 ARDUINO_EVENT_WIFI_STA_START);
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { capTxPower("AP start"); },
+                 ARDUINO_EVENT_WIFI_AP_START);
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { capTxPower("AP stop"); },
+                 ARDUINO_EVENT_WIFI_AP_STOP);
+#endif
 
     // Global default for every netif created from here on; the STA netif reads
     // it when WiFi.mode() creates it, so this has to come first.
@@ -979,6 +1004,9 @@ void setup() {
     WiFi.mode(WIFI_STA);
 
     Serial.println("[D] WiFi.mode survived");
+#ifdef TULX32_BUSPOWERED
+    capTxPower("after mode()");   // before the first begin(), not left to the event task
+#endif
     Serial.flush();
     delay(50);
 
@@ -1062,7 +1090,7 @@ void setup() {
         Serial.println(WiFi.softAPIP());
     } else {
         Serial.println("WiFi credentials found, attempting auto-reconnect...");
-        // setTxPower / setSleep wurden bereits oben vor mode() gesetzt.
+        // setSleep wurde oben gesetzt; die Sendeleistung begrenzt capTxPower().
         Serial.println("[H] WiFi.begin() — connect to AP");
         Serial.flush();
         delay(50);
