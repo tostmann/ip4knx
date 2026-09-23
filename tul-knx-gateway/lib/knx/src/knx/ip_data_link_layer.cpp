@@ -539,9 +539,13 @@ void IpDataLinkLayer::loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t 
                     if(version > KNX_SERVICE_FAMILY_TUNNELING) return;
                     break;
                 case Routing:
+#if MASK_VERSION == 0x091A
                     // not served while routing is inactive, so do not answer a search for it
                     if(!routing || version > KNX_SERVICE_FAMILY_ROUTING) return;
                     break;
+#else
+                    return; // only a router serves the routing family
+#endif
             }
         }
     }

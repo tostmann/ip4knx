@@ -16,7 +16,9 @@ enum ServiceFamily : uint8_t
 // One entry: family id and version.
 #define LEN_SERVICE_FAMILIES 2
 // The longest DIB this build sends: Core, Device Management, Tunnelling (with
-// KNX_TUNNELING) and Routing (091A only).
+// KNX_TUNNELING) and Routing (091A only). KnxIpSearchResponse and
+// KnxIpDescriptionResponse allocate their frames for exactly this length and
+// shorten them to lengthFor(), so lengthFor() must never exceed it.
 #if MASK_VERSION == 0x091A
 #ifdef KNX_TUNNELING
 #define LEN_SERVICE_DIB (2 + 4 * LEN_SERVICE_FAMILIES)
