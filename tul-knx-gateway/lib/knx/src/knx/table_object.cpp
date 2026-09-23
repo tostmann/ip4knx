@@ -80,7 +80,10 @@ const uint8_t* TableObject::restore(const uint8_t* buffer)
 
     uint8_t state = 0;
     buffer = popByte(state, buffer);
-    _state = (LoadState)state;
+    // Only the states loadEvent() dispatches on: any other value froze the object,
+    // and every later load event, Unload included, was ignored.
+    _state = (state == LS_UNLOADED || state == LS_LOADED || state == LS_LOADING || state == LS_ERROR)
+                 ? (LoadState)state : LS_UNLOADED;
 
     buffer = popInt(_size, buffer);
 
@@ -171,7 +174,11 @@ void TableObject::allocTableStatic()
 
         _data = _memory.toAbsolute(_staticTableAdr);
         _size = _staticTableSize;
-        _memory.addNewUsedBlock(_data, _size);
+        if (!_memory.addNewUsedBlock(_data, _size))
+        {
+            _data = 0;
+            _size = 0;
+        }
     }
 }
 

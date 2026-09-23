@@ -122,12 +122,21 @@ const uint8_t* DataProperty::restore(const uint8_t* buffer)
     uint16_t elements = 0;
     buffer = popWord(elements, buffer);
 
+    // The count comes from the stored image. save() never writes more than
+    // _maxElements, so a larger count is not ours: keep the default instead of
+    // allocating up to 65535 elements and copying past the image. A single-element
+    // property is read through data() without a check (serial number, hardware
+    // type in the NVM header), so it must not come back empty either.
+    if (elements > _maxElements || (elements == 0 && _maxElements <= 1))
+        return buffer;
+
     if (elements != _currentElements)
     {
         if (_data != nullptr)
             delete[] _data;
-        
-        _data = new uint8_t[elements * ElementSize()];
+
+        // new uint8_t[0] is non-null and zero-length; an empty array has no data.
+        _data = (elements > 0) ? new uint8_t[elements * ElementSize()] : nullptr;
         _currentElements = elements;
     }
 

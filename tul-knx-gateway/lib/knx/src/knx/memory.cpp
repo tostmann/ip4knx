@@ -124,11 +124,27 @@ void Memory::readMemory()
         buffer = popWord(memorySize, buffer);
         print("Size: ");
         println(memorySize);
-        if (memorySize == 0)
-            continue;
+        // The address and the size of a dynamic table come from the stored image,
+        // which management writes can reach; a static table takes both from its build
+        // constants (TableObject::restore). A block outside the free NVM is dropped
+        // with its table instead of being registered: fatalError() here stopped every
+        // boot. A table left without memory does not report Loaded.
+        TableObject* table = _tableObjects[i];
+        if (table->_staticTableAdr)
+            memorySize = (table->_data != nullptr) ? table->_size : 0;
 
-        // this works because TableObject saves a relative addr and restores it itself
-        addNewUsedBlock(_tableObjects[i]->_data, memorySize);
+        if (memorySize == 0 || table->_data == nullptr || !addNewUsedBlock(table->_data, memorySize))
+        {
+            if (memorySize != 0)
+                println("stored table outside the NVM -- not restored");
+            table->_data = 0;
+            table->_size = 0;
+            if (table->_state == LS_LOADED)
+                table->_state = LS_UNLOADED;
+            continue;
+        }
+        if (table->_size > memorySize)
+            table->_size = memorySize;
 
 #if MASK_VERSION == 0x091A
         // load the tables but delete the data
@@ -488,7 +504,9 @@ MemoryBlock* Memory::findBlockInList(MemoryBlock* head, uint8_t* address)
     return nullptr;
 }
 
-void Memory::addNewUsedBlock(uint8_t* address, size_t size)
+// Returns false, and changes nothing, when the block does not lie inside one free
+// block. Both callers can drop the table instead: halting here stopped the device.
+bool Memory::addNewUsedBlock(uint8_t* address, size_t size)
 {
     MemoryBlock* smallerFreeBlock = _freeList;
     // find block in freeList where the new used block is contained in
@@ -504,13 +522,18 @@ void Memory::addNewUsedBlock(uint8_t* address, size_t size)
     if (smallerFreeBlock == nullptr)
     {
         println("addNewUsedBlock: no smallerBlock found");
-        _platform.fatalError();
+        return false;
     }
 
-    if ((smallerFreeBlock->address + smallerFreeBlock->size) < (address + size))
+    // Compared as integers: the address may come from a stored image and point
+    // anywhere, before the block as well as past its end.
+    uintptr_t blockStart = (uintptr_t)smallerFreeBlock->address;
+    uintptr_t blockEnd = blockStart + smallerFreeBlock->size;
+    uintptr_t start = (uintptr_t)address;
+    if (size == 0 || start < blockStart || start > blockEnd || size > blockEnd - start)
     {
         println("addNewUsedBlock: found block can't contain new block");
-        _platform.fatalError();
+        return false;
     }
 
     if (smallerFreeBlock->address == address && smallerFreeBlock->size == size)
@@ -518,7 +541,7 @@ void Memory::addNewUsedBlock(uint8_t* address, size_t size)
         // we take thow whole block
         removeFromFreeList(smallerFreeBlock);
         addToUsedList(smallerFreeBlock);
-        return;
+        return true;
     }
 
     if (smallerFreeBlock->address == address)
@@ -546,6 +569,7 @@ void Memory::addNewUsedBlock(uint8_t* address, size_t size)
 
     MemoryBlock* newUsedBlock = new MemoryBlock(address, size);
     addToUsedList(newUsedBlock);
+    return true;
 }
 
 void Memory::versionCheckCallback(VersionCheckCallback func)
