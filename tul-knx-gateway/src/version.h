@@ -4,11 +4,11 @@
 
 #define FW_VERSION_MAJOR  1
 #define FW_VERSION_MINOR  4
-#define FW_VERSION_BUILD  157
-#define FW_VERSION_STRING "1.4.157"
-#define FW_BUILD_DATE     "2026-09-23 21:31:53"
+#define FW_VERSION_BUILD  159
+#define FW_VERSION_STRING "1.4.159"
+#define FW_BUILD_DATE     "2026-09-23 22:03:01"
 
 // Backwards-compatibility aliases for existing consumers in main.cpp.
 #define FIRMWARE_VERSION  FW_VERSION_STRING
 #define BUILD_NUMBER      FW_VERSION_BUILD
-#define BUILD_GIT         "f74526f"
+#define BUILD_GIT         "81366ff"
