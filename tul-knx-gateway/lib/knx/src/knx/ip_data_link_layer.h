@@ -23,6 +23,7 @@ class IpDataLinkLayer : public DataLinkLayer
     // Re-announce the joined group without leaving it (see Platform::refreshMultiCast).
     void refreshMultiCast();
     void knxBusConnected(bool connected);  // Set KNX bus connection status
+    bool routingActive();                  // KNXnet/IP routing only once an individual address is set
     DptMedium mediumType() const override;
 #ifdef KNX_TUNNELING
     void dataRequestToTunnel(CemiFrame& frame) override;

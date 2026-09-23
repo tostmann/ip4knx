@@ -1668,6 +1668,8 @@ void setup() {
         auto dl = ((Bau091A&)knx.bau()).getPrimaryDataLinkLayer();
         if(dl) activeClients = dl->getActiveTunnelCount();
         json += "\"active_clients\":" + String(activeClients) + ",";
+        // KNXnet/IP routing runs only once an individual address other than 15.15.0 is set.
+        json += "\"knx_routing\":" + String(dl && dl->routingActive() ? "true" : "false") + ",";
         
         auto tpLayer = ((Bau091A&)knx.bau()).getSecondaryDataLinkLayer();
         if (tpLayer) {

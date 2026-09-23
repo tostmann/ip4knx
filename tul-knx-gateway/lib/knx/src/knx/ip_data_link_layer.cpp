@@ -39,8 +39,27 @@ IpDataLinkLayer::IpDataLinkLayer(DeviceObject& devObj, IpParameterObject& ipPara
 {
 }
 
+// KNXnet/IP routing (the multicast ROUTING_INDICATION exchange) starts only once
+// the device has an individual address other than the factory 15.15.0. Two
+// unprogrammed sticks on the same TP line would otherwise pass every telegram of
+// main groups 14-31 back and forth between TP and IP until the hop count runs out.
+// Tunnelling is not affected: tunnel clients get their frames from the TP side.
+bool IpDataLinkLayer::routingActive()
+{
+    return _deviceObject.individualAddress() != 0xFF00;
+}
+
 bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
 {
+    if (!routingActive())
+    {
+        // Nothing to route to while unprogrammed. Confirmed as delivered: the IP
+        // side has no routing peers, and a negative confirmation would reach the
+        // device's own frames as a transmission failure.
+        dataConReceived(frame, true);
+        return true;
+    }
+
     KnxIpRoutingIndication packet(frame);
     // only send 50 packet per second: see KNX 3.2.6 p.6
     if(isSendLimitReached())
@@ -379,6 +398,9 @@ void IpDataLinkLayer::loop()
     {
         case RoutingIndication:
         {
+            if (!routingActive())
+                break;   // unprogrammed: no KNXnet/IP routing, see routingActive()
+
             KnxIpRoutingIndication routingIndication(buffer, len);
             // Routing indications carry an L_Data cEMI; drop malformed frames
             // before the network layer reads ctrl/addr fields off a bogus length.
