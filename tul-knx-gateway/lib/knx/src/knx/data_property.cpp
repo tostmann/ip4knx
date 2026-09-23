@@ -31,7 +31,11 @@ uint8_t DataProperty::write(uint16_t start, uint8_t count, const uint8_t* data)
 
     if (start == 0)
     {
-        if (count == 1 && data[0] == 0 && data[1] == 0)
+        // Only an array can be emptied: a single-element property is read through
+        // data() by callers that expect it to exist -- the serial number by every
+        // KNXnet/IP search and description response, the hardware type by the NVM
+        // header. (upstream OpenKNX/knx 0daa94c)
+        if (count == 1 && _maxElements > 1 && data[0] == 0 && data[1] == 0)
         {
             // reset _data
             _currentElements = 0;
