@@ -3,21 +3,6 @@
 #if KNX_SERVICE_FAMILY_CORE >= 2
 #ifdef USE_IP
 
-#define LEN_SERVICE_FAMILIES 2
-#if MASK_VERSION == 0x091A
-#ifdef KNX_TUNNELING
-#define LEN_SERVICE_DIB (2 + 4 * LEN_SERVICE_FAMILIES)
-#else
-#define LEN_SERVICE_DIB (2 + 3 * LEN_SERVICE_FAMILIES)
-#endif
-#else
-#ifdef KNX_TUNNELING
-#define LEN_SERVICE_DIB (2 + 3 * LEN_SERVICE_FAMILIES)
-#else
-#define LEN_SERVICE_DIB (2 + 2 * LEN_SERVICE_FAMILIES)
-#endif
-#endif
-
 KnxIpSearchResponseExtended::KnxIpSearchResponseExtended(IpParameterObject& parameters, DeviceObject& deviceObject, int dibLength)
     : KnxIpFrame(LEN_KNXIP_HEADER + LEN_IPHPAI + dibLength),
       _controlEndpoint(_data + LEN_KNXIP_HEADER)
@@ -63,21 +48,12 @@ void KnxIpSearchResponseExtended::setDeviceInfo(IpParameterObject& parameters, D
     currentPos += LEN_DEVICE_INFORMATION_DIB;
 }
 
-void KnxIpSearchResponseExtended::setSupportedServices()
+void KnxIpSearchResponseExtended::setSupportedServices(bool routing)
 {
     //println("setSupportedServices");
     KnxIpSupportedServiceDIB _supportedServices(_data + currentPos);
-    _supportedServices.length(LEN_SERVICE_DIB);
-    _supportedServices.code(SUPP_SVC_FAMILIES);
-    _supportedServices.serviceVersion(Core, KNX_SERVICE_FAMILY_CORE);
-    _supportedServices.serviceVersion(DeviceManagement, KNX_SERVICE_FAMILY_DEVICE_MANAGEMENT);
-#ifdef KNX_TUNNELING
-    _supportedServices.serviceVersion(Tunnelling, KNX_SERVICE_FAMILY_TUNNELING);
-#endif
-#if MASK_VERSION == 0x091A
-    _supportedServices.serviceVersion(Routing, KNX_SERVICE_FAMILY_ROUTING);
-#endif
-    currentPos += LEN_SERVICE_DIB;
+    _supportedServices.setServiceFamilies(routing);
+    currentPos += KnxIpSupportedServiceDIB::lengthFor(routing);
 }
 
 void KnxIpSearchResponseExtended::setIpConfig(IpParameterObject& parameters)

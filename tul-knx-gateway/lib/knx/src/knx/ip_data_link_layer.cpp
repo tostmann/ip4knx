@@ -514,23 +514,9 @@ void IpDataLinkLayer::loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t 
                 return;
     }
 
-    #define LEN_SERVICE_FAMILIES 2
-    #if MASK_VERSION == 0x091A
-    #ifdef KNX_TUNNELING
-    #define LEN_SERVICE_DIB (2 + 4 * LEN_SERVICE_FAMILIES)
-    #else
-    #define LEN_SERVICE_DIB (2 + 3 * LEN_SERVICE_FAMILIES)
-    #endif
-    #else
-    #ifdef KNX_TUNNELING
-    #define LEN_SERVICE_DIB (2 + 3 * LEN_SERVICE_FAMILIES)
-    #else
-    #define LEN_SERVICE_DIB (2 + 2 * LEN_SERVICE_FAMILIES)
-    #endif
-    #endif
-
     //defaults: "Device Information DIB", "Extended Device Information DIB" and "Supported Services DIB".
-    int dibLength = LEN_DEVICE_INFORMATION_DIB + LEN_SERVICE_DIB + LEN_EXTENDED_DEVICE_INFORMATION_DIB;
+    const bool routing = routingActive();
+    int dibLength = LEN_DEVICE_INFORMATION_DIB + KnxIpSupportedServiceDIB::lengthFor(routing) + LEN_EXTENDED_DEVICE_INFORMATION_DIB;
 
     if(searchRequest.srpByService)
     {
@@ -553,7 +539,8 @@ void IpDataLinkLayer::loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t 
                     if(version > KNX_SERVICE_FAMILY_TUNNELING) return;
                     break;
                 case Routing:
-                    if(version > KNX_SERVICE_FAMILY_ROUTING) return;
+                    // not served while routing is inactive, so do not answer a search for it
+                    if(!routing || version > KNX_SERVICE_FAMILY_ROUTING) return;
                     break;
             }
         }
@@ -588,7 +575,7 @@ void IpDataLinkLayer::loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t 
     KnxIpSearchResponseExtended searchResponse(_ipParameters, _deviceObject, dibLength);
 
     searchResponse.setDeviceInfo(_ipParameters, _deviceObject); //DescriptionTypeCode::DeviceInfo 1
-    searchResponse.setSupportedServices(); //DescriptionTypeCode::SUPP_SVC_FAMILIES 2
+    searchResponse.setSupportedServices(routing); //DescriptionTypeCode::SUPP_SVC_FAMILIES 2
     searchResponse.setExtendedDeviceInfo(); //DescriptionTypeCode::EXTENDED_DEVICE_INFO 8
 
     if(searchRequest.srpRequestDIBs)

@@ -1,21 +1,6 @@
 #include "knx_ip_search_response.h"
 #ifdef USE_IP
 
-#define LEN_SERVICE_FAMILIES 2
-#if MASK_VERSION == 0x091A
-#ifdef KNX_TUNNELING
-#define LEN_SERVICE_DIB (2 + 4 * LEN_SERVICE_FAMILIES)
-#else
-#define LEN_SERVICE_DIB (2 + 3 * LEN_SERVICE_FAMILIES)
-#endif
-#else
-#ifdef KNX_TUNNELING
-#define LEN_SERVICE_DIB (2 + 3 * LEN_SERVICE_FAMILIES)
-#else
-#define LEN_SERVICE_DIB (2 + 2 * LEN_SERVICE_FAMILIES)
-#endif
-#endif
-
 KnxIpSearchResponse::KnxIpSearchResponse(IpParameterObject& parameters, DeviceObject& deviceObject)
     : KnxIpFrame(LEN_KNXIP_HEADER + LEN_IPHPAI + LEN_DEVICE_INFORMATION_DIB + LEN_SERVICE_DIB),
       _controlEndpoint(_data + LEN_KNXIP_HEADER), _deviceInfo(_data + LEN_KNXIP_HEADER + LEN_IPHPAI),
@@ -52,28 +37,12 @@ KnxIpSearchResponse::KnxIpSearchResponse(IpParameterObject& parameters, DeviceOb
     prop->read(1, LEN_FRIENDLY_NAME, friendlyName);
     _deviceInfo.friendlyName(friendlyName);
 
-#if MASK_VERSION == 0x091A
-    // Routing is announced only while it runs: an unprogrammed coupler neither
-    // sends nor accepts routing indications (IpDataLinkLayer::routingActive()).
-    // The service DIB is the last block of the frame, so leaving the family out
-    // shortens the frame by its two octets.
+    // Routing is announced only while it runs (IpDataLinkLayer::routingActive()).
+    // The frame is allocated for the longest service DIB; the DIB is its last
+    // block, so a shorter one only shortens the frame.
     const bool routing = deviceObject.individualAddressProgrammed();
-    if (!routing)
-        totalLength(totalLength() - LEN_SERVICE_FAMILIES);
-    _supportedServices.length(routing ? LEN_SERVICE_DIB : LEN_SERVICE_DIB - LEN_SERVICE_FAMILIES);
-#else
-    _supportedServices.length(LEN_SERVICE_DIB);
-#endif
-    _supportedServices.code(SUPP_SVC_FAMILIES);
-    _supportedServices.serviceVersion(Core, KNX_SERVICE_FAMILY_CORE);
-    _supportedServices.serviceVersion(DeviceManagement, KNX_SERVICE_FAMILY_DEVICE_MANAGEMENT);
-#ifdef KNX_TUNNELING
-    _supportedServices.serviceVersion(Tunnelling, KNX_SERVICE_FAMILY_TUNNELING);
-#endif
-#if MASK_VERSION == 0x091A
-    if (routing)
-        _supportedServices.serviceVersion(Routing, KNX_SERVICE_FAMILY_ROUTING);
-#endif
+    totalLength(totalLength() - (LEN_SERVICE_DIB - KnxIpSupportedServiceDIB::lengthFor(routing)));
+    _supportedServices.setServiceFamilies(routing);
 }
 
 

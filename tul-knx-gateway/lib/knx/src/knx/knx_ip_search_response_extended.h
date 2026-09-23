@@ -21,7 +21,7 @@ class KnxIpSearchResponseExtended : public KnxIpFrame
     KnxIpSearchResponseExtended(IpParameterObject& parameters, DeviceObject& deviceObj, int dibLength);
     IpHostProtocolAddressInformation& controlEndpoint();
     void setDeviceInfo(IpParameterObject& parameters, DeviceObject& deviceObject);
-    void setSupportedServices();
+    void setSupportedServices(bool routing);
     void setIpConfig(IpParameterObject& parameters);
     void setIpCurrentConfig(IpParameterObject& parameters);
     void setKnxAddresses(IpParameterObject& parameters, DeviceObject& deviceObject);
