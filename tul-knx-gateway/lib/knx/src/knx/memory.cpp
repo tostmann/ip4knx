@@ -271,6 +271,13 @@ void Memory::saveMemory()
 // so on the 091A nothing was stored except on A_Restart.
 void Memory::scheduleSave()
 {
+    if (_saveTimeout == 0)
+    {
+        // first change since the last save
+        _firstPendingChange = millis();
+        if (_firstPendingChange == 0)
+            _firstPendingChange = 1;
+    }
     _saveTimeout = millis();
     if (_saveTimeout == 0)
         _saveTimeout = 1; // prevent 0=disabled
@@ -364,9 +371,7 @@ void Memory::freeMemory(uint8_t* ptr)
     }
     removeFromUsedList(block);
     addToFreeList(block);
-    _saveTimeout = millis();
-    if (_saveTimeout == 0)
-        _saveTimeout = 1; // prevent 0=disabled; no impact by minimal increased timeout
+    scheduleSave();
 }
 
 void Memory::writeMemory(uint32_t relativeAddress, size_t size, uint8_t* data)
@@ -643,11 +648,21 @@ static const unsigned long kMinSaveIntervalMs = 60000;
 
 void Memory::loop()
 {
-    if(_saveTimeout != 0 && millis() - _saveTimeout > 5000
-       && (_lastSave == 0 || millis() - _lastSave >= kMinSaveIntervalMs))
+    if (_saveTimeout == 0)
+        return;
+
+    const unsigned long now = millis();
+    // Due after five quiet seconds, or once the oldest unsaved change is a minute
+    // old: every change restarts the five seconds, so a client writing more often
+    // than that held the save off for as long as it kept writing, and a change made
+    // in between -- an individual address -- never reached flash.
+    const bool due = (now - _saveTimeout > 5000) || (now - _firstPendingChange >= kMinSaveIntervalMs);
+    const bool spaced = (_lastSave == 0 || now - _lastSave >= kMinSaveIntervalMs);
+    if (due && spaced)
     {
         println("saveMemory timeout");
         _saveTimeout = 0;
+        _firstPendingChange = 0;
         writeMemory();
         _lastSave = millis();
         if (_lastSave == 0)

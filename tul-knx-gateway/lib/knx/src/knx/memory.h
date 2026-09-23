@@ -79,6 +79,7 @@ class Memory
 
     unsigned long _saveTimeout = 0; // timeout for saving memory
     unsigned long _lastSave = 0;    // millis() of the last timed save, 0 = none yet
+    unsigned long _firstPendingChange = 0; // millis() of the oldest change not yet saved
     VersionCheckCallback _versionCheckCallback = 0;
     Platform& _platform;
     DeviceObject& _deviceObject;
