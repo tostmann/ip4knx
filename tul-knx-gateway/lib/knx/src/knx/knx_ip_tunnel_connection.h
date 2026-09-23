@@ -10,6 +10,7 @@ class KnxIpTunnelConnection
     uint8_t ChannelId = 0;
     uint16_t IndividualAddress = 0;
     uint32_t IpAddress = 0;
+    uint32_t PeerAddress = 0;   // UDP source of the CONNECT_REQUEST; only it may use the channel
     uint16_t PortData = 0;
     uint16_t PortCtrl = 0;
     uint8_t SequenceCounter_S = 0;

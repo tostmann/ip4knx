@@ -426,7 +426,7 @@ void IpDataLinkLayer::loop()
 
         case DisconnectRequest:
         {
-            loopHandleDisconnectRequest(buffer, len);
+            loopHandleDisconnectRequest(buffer, len, remoteAddr);
             break;
         }
 
@@ -438,13 +438,13 @@ void IpDataLinkLayer::loop()
 
         case DeviceConfigurationRequest:
         {
-            loopHandleDeviceConfigurationRequest(buffer, len);
+            loopHandleDeviceConfigurationRequest(buffer, len, remoteAddr);
             break;
         }
 
         case TunnelingRequest:
         {
-            loopHandleTunnelingRequest(buffer, len);
+            loopHandleTunnelingRequest(buffer, len, remoteAddr);
             return;
         }
 
@@ -597,6 +597,19 @@ void IpDataLinkLayer::loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t 
 #endif
 
 #ifdef KNX_TUNNELING
+// A channel is matched by its id alone, and the ids count up from 1 after every
+// boot, so any host on the network could close a tunnel or send frames into it.
+// Only the address the CONNECT_REQUEST came from may use the channel. This is the
+// UDP source, not the HPAI: behind NAT the HPAI names the client's own address and
+// the frames arrive from the translated one. It stops stray and sweeping senders;
+// a sender that forges its IP source address on the local network is not stopped.
+// (upstream OpenKNX/knx fa6d3a0, adapted: our tunnels keep the control address in
+// IpAddress)
+bool IpDataLinkLayer::fromTunnelPeer(const KnxIpTunnelConnection* tun, uint32_t src_addr)
+{
+    return tun->PeerAddress == src_addr;
+}
+
 void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length, uint32_t& src_addr, uint16_t& src_port)
 {
     KnxIpConnectRequest connRequest(buffer, length);
@@ -891,6 +904,7 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
         _lastChannelId = 0;
 
     tun->IpAddress = srcIP;
+    tun->PeerAddress = src_addr;
     tun->PortData = connRequest.hpaiData().ipPortNumber()?connRequest.hpaiData().ipPortNumber():srcPort;
     tun->PortCtrl = connRequest.hpaiCtrl().ipPortNumber()?connRequest.hpaiCtrl().ipPortNumber():srcPort;
 
@@ -991,7 +1005,7 @@ void IpDataLinkLayer::loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t
     _platform.sendBytesUniCast(stateRequest.hpaiCtrl().ipAddress(), stateRequest.hpaiCtrl().ipPortNumber(), stateRes.data(), stateRes.totalLength());
 }
 
-void IpDataLinkLayer::loopHandleDisconnectRequest(uint8_t* buffer, uint16_t length)
+void IpDataLinkLayer::loopHandleDisconnectRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr)
 {
     KnxIpDisconnectRequest discReq(buffer, length);
             
@@ -1023,6 +1037,12 @@ void IpDataLinkLayer::loopHandleDisconnectRequest(uint8_t* buffer, uint16_t leng
         return;
     }
 
+    if (!fromTunnelPeer(tun, src_addr))
+    {
+        println("disconnect request from a foreign source address -> ignored");
+        return;
+    }
+
 
     KnxIpDisconnectResponse discRes(tun->ChannelId, E_NO_ERROR);
     _platform.sendBytesUniCast(discReq.hpaiCtrl().ipAddress(), discReq.hpaiCtrl().ipPortNumber(), discRes.data(), discRes.totalLength());
@@ -1036,7 +1056,7 @@ void IpDataLinkLayer::loopHandleDescriptionRequest(uint8_t* buffer, uint16_t len
     _platform.sendBytesUniCast(descReq.hpaiCtrl().ipAddress(), descReq.hpaiCtrl().ipPortNumber(), descRes.data(), descRes.totalLength());
 }
 
-void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint16_t length)
+void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr)
 {
     // Reject runt frames before constructing the request: the ctor computes the
     // cEMI length as (length - LEN_KNXIP_HEADER - LEN_CH), which underflows
@@ -1069,6 +1089,12 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
         return;
     }
 
+    if (!fromTunnelPeer(tun, src_addr))
+    {
+        println("device configuration request from a foreign source address -> ignored");
+        return;
+    }
+
     KnxIpTunnelingAck tunnAck;
     tunnAck.serviceTypeIdentifier(DeviceConfigurationAck);
     tunnAck.connectionHeader().length(4);
@@ -1081,7 +1107,7 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
     _cemiServer->frameReceived(confReq.frame(), tun->ChannelId);
 }
 
-void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t length)
+void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr)
 {
     // Reject runt frames before constructing the request: the ctor computes the
     // cEMI length as (length - LEN_CH - headerLength()), which underflows uint16
@@ -1113,6 +1139,12 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
 #endif
         KnxIpStateResponse stateRes(0x00, E_CONNECTION_ID);
         _platform.sendBytesUniCast(0, 0, stateRes.data(), stateRes.totalLength());
+        return;
+    }
+
+    if (!fromTunnelPeer(tun, src_addr))
+    {
+        println("tunnel frame from a foreign source address -> ignored");
         return;
     }
 

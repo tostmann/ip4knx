@@ -45,11 +45,12 @@ class IpDataLinkLayer : public DataLinkLayer
 #ifdef KNX_TUNNELING
     void sendFrameToTunnel(KnxIpTunnelConnection *tunnel, CemiFrame& frame);
     void loopHandleConnectRequest(uint8_t* buffer, uint16_t length, uint32_t& src_addr, uint16_t& src_port);
+    bool fromTunnelPeer(const KnxIpTunnelConnection* tun, uint32_t src_addr);
     void loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t length);
-    void loopHandleDisconnectRequest(uint8_t* buffer, uint16_t length);
+    void loopHandleDisconnectRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr);
     void loopHandleDescriptionRequest(uint8_t* buffer, uint16_t length);
-    void loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint16_t length);
-    void loopHandleTunnelingRequest(uint8_t* buffer, uint16_t length);
+    void loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr);
+    void loopHandleTunnelingRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr);
 #endif
 #if KNX_SERVICE_FAMILY_CORE >= 2
     void loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t length);
