@@ -286,8 +286,16 @@ uint8_t* TableObject::data()
 
 void TableObject::errorCode(ErrorCode errorCode)
 {
-    uint8_t data = errorCode;
+    // Only a dynamic table has PID_ERROR_CODE (initializeDynTableProperties); a static
+    // one -- both tables of the 091A -- gets its properties from
+    // InterfaceObject::initializeProperties. Without the check a single
+    // A_PropertyValue_Write of an unknown load event to object 1 or 2 wrote through
+    // a null pointer. (upstream OpenKNX/knx adacceb)
     Property* prop = property(PID_ERROR_CODE);
+    if (prop == nullptr)
+        return;
+
+    uint8_t data = errorCode;
     prop->write(data);
 }
 
