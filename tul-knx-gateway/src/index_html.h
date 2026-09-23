@@ -197,6 +197,10 @@ const char index_html[] PROGMEM = R"rawliteral(
                             <button id="prog-toggle-btn" class="btn-inline" onclick="toggleProgMode()" data-i18n="action.toggle">Toggle</button>
                         </span>
                     </div>
+                    <div class="info-row">
+                        <span data-i18n="knx.storedConfig">Stored Configuration:</span>
+                        <button id="knx-reset-btn" class="btn-inline" style="background-color: #ef4444;" onclick="resetKnxConfig()" data-i18n="action.resetKnxConfig">Reset</button>
+                    </div>
                     <div class="info-row"><span>Status LED Pin:</span> <span id="knx_led_pin">-</span></div>
                     <div class="info-row"><span>Prog Button Pin:</span> <span id="knx_btn_pin">-</span></div>
                 </div>
@@ -354,7 +358,7 @@ const char index_html[] PROGMEM = R"rawliteral(
             en: {
                 'wifi.searching': 'Searching...', 'wifi.scanTimeout': 'Scan timed out!', 'wifi.scanError': 'Error scanning networks!', 'wifi.ssidRequired': 'SSID cannot be empty!', 'wifi.configurationSaved': 'Configuration saved. The gateway will now restart.', 'error.prefix': 'Error: ', 'wifi.sendError': 'Error sending request!',
                 'update.currentIsLatest': 'Current version is the latest ({latest}).', 'update.loadingManifest': 'Loading manifest…', 'update.availableMessage': 'Update available: {latest} (current {current}).', 'update.installing': 'Installing… {progress} / {total} bytes', 'update.done': 'Success — the gateway is restarting. The page will reload automatically.', 'update.unknownError': 'unknown', 'update.confirm': 'Install the online update now? The gateway will restart afterwards.', 'update.startError': 'Error starting update: {error}',
-                'recovery.confirm': 'Restart into the recovery system? The gateway is offline until you start the application again or reconnect the KNX bus.', 'recovery.restarting': 'Restarting into recovery. Reload this address in about 20 seconds.', 'recovery.failed': 'Recovery not available: {error}', 'firmware.onlineUpdateDescriptionRecovery': 'Checks install.busware.de/ip4knx/ for a newer version. Install it with the recovery system below.', 'ota.calculatingMd5': 'Calculating MD5…', 'ota.md5Failed': 'MD5 calculation failed: {error}', 'ota.uploading': 'MD5 {md5} — uploading…', 'ota.success': 'OTA successful — the gateway will restart in about 2 seconds.', 'ota.failed': 'OTA failed (HTTP {status})', 'ota.networkError': 'OTA: network error during upload.', 'knx.toggleError': 'Error changing programming mode!', 'knx.active': 'ACTIVE', 'knx.off': 'OFF', 'wifi.clearConfirm': 'Delete Wi-Fi credentials and restart the gateway permanently in AP mode?', 'wifi.cleared': 'Wi-Fi credentials deleted. The gateway will now restart in AP mode.',
+                'recovery.confirm': 'Restart into the recovery system? The gateway is offline until you start the application again or reconnect the KNX bus.', 'recovery.restarting': 'Restarting into recovery. Reload this address in about 20 seconds.', 'recovery.failed': 'Recovery not available: {error}', 'firmware.onlineUpdateDescriptionRecovery': 'Checks install.busware.de/ip4knx/ for a newer version. Install it with the recovery system below.', 'ota.calculatingMd5': 'Calculating MD5…', 'ota.md5Failed': 'MD5 calculation failed: {error}', 'ota.uploading': 'MD5 {md5} — uploading…', 'ota.success': 'OTA successful — the gateway will restart in about 2 seconds.', 'ota.failed': 'OTA failed (HTTP {status})', 'ota.networkError': 'OTA: network error during upload.', 'knx.toggleError': 'Error changing programming mode!', 'knx.active': 'ACTIVE', 'knx.off': 'OFF', 'knx.resetConfirm': 'Delete the stored KNX configuration (physical address, tunnel addresses, routing settings) and restart the gateway? ETS has to program the device again afterwards. Wi-Fi settings are kept.', 'knx.resetDone': 'KNX configuration deleted. The gateway restarts now.', 'knx.resetError': 'Could not reset the KNX configuration.', 'wifi.clearConfirm': 'Delete Wi-Fi credentials and restart the gateway permanently in AP mode?', 'wifi.cleared': 'Wi-Fi credentials deleted. The gateway will now restart in AP mode.',
                 'ethernet.wifiOff': 'off (Ethernet active)', 'ethernet.noCable': 'No cable', 'ethernet.connected': 'Connected', 'ethernet.activeForKnx': 'Connected, active for KNX',
                 'ncn.v20v': 'V20V linear voltage regulator within its normal operating range', 'ncn.vdd2': 'DC2 regulator within its normal operating range', 'ncn.vbus': 'KNX bus voltage within its normal range', 'ncn.vfilt': 'Tank capacitor within its normal operating range', 'ncn.xtal': 'Crystal oscillator frequency within its normal range',
                 'ncn.stateConnected': 'Connected', 'ncn.stateDisconnected': 'No response', 'ncn.stateBusmonitor': 'Bus monitor', 'ncn.stateUninitialized': 'No bus detected', 'ncn.stateNoLayer': 'Not initialized', 'ncn.unknownNoConnection': 'Unknown — no connection to the NCN5130',
@@ -391,7 +395,7 @@ const char index_html[] PROGMEM = R"rawliteral(
                 'wifi.selectNetwork': 'Wählen Sie ein Netzwerk...', 'action.scanWifi': 'WLAN Netzwerke suchen', 'update.unknown': 'Stand unbekannt — Suche starten.',
                 'wifi.searching': 'Suche läuft...', 'wifi.scanTimeout': 'Scan-Timeout!', 'wifi.scanError': 'Fehler beim Scannen!', 'wifi.ssidRequired': 'SSID darf nicht leer sein!', 'wifi.configurationSaved': 'Konfiguration gespeichert. Das Gateway startet nun neu.', 'error.prefix': 'Fehler: ', 'wifi.sendError': 'Fehler beim Senden!',
                 'update.currentIsLatest': 'Aktuelle Version ist die neueste ({latest}).', 'update.loadingManifest': 'Manifest wird geladen…', 'update.availableMessage': 'Update verfügbar: {latest} (aktuell {current}).', 'update.installing': 'Installation läuft… {progress} / {total} Bytes', 'update.done': 'Erfolgreich — Gateway startet neu. Seite lädt automatisch.', 'update.unknownError': 'unbekannt', 'update.confirm': 'Online-Update jetzt installieren? Das Gateway startet anschließend neu.', 'update.startError': 'Fehler beim Starten: {error}',
-                'recovery.confirm': 'In das Recovery-System neu starten? Das Gateway ist offline, bis Sie die Anwendung wieder starten oder den KNX-Bus neu anschließen.', 'recovery.restarting': 'Neustart in das Recovery-System. Diese Adresse in etwa 20 Sekunden neu laden.', 'recovery.failed': 'Recovery nicht verfügbar: {error}', 'firmware.onlineUpdateDescriptionRecovery': 'Prüft install.busware.de/ip4knx/ auf eine neuere Version. Installiert wird sie über das Recovery-System unten.', 'firmware.recoveryTitle': 'Firmware installieren', 'firmware.recoveryDescription': 'Dieses Gerät installiert Firmware über sein Recovery-System: in das Recovery-System neu starten, dort unter „Install from busware“ auf „Check online“ drücken und das Image wählen – das Gerät lädt und prüft es selbst. Ohne diese Seite: Taster S1 beim Anschließen des KNX-Busses drücken und 5 Sekunden gedrückt halten.', 'action.restartRecovery': 'In Recovery neu starten', 'ota.noFile': 'Keine Datei ausgewählt.', 'ota.calculatingMd5': 'Berechne MD5…', 'ota.md5Failed': 'MD5-Berechnung fehlgeschlagen: {error}', 'ota.uploading': 'MD5 {md5} — Upload läuft…', 'ota.success': 'OTA erfolgreich — Gateway startet neu in ~2 s.', 'ota.failed': 'OTA fehlgeschlagen (HTTP {status})', 'ota.networkError': 'OTA: Netzwerkfehler beim Upload.', 'knx.toggleError': 'Fehler beim Umschalten des Programmier-Modus!', 'knx.active': 'AKTIV', 'knx.off': 'AUS', 'wifi.clearConfirm': 'WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?', 'wifi.cleared': 'WLAN-Daten gelöscht. Das Gateway startet nun im AP-Modus neu.',
+                'recovery.confirm': 'In das Recovery-System neu starten? Das Gateway ist offline, bis Sie die Anwendung wieder starten oder den KNX-Bus neu anschließen.', 'recovery.restarting': 'Neustart in das Recovery-System. Diese Adresse in etwa 20 Sekunden neu laden.', 'recovery.failed': 'Recovery nicht verfügbar: {error}', 'firmware.onlineUpdateDescriptionRecovery': 'Prüft install.busware.de/ip4knx/ auf eine neuere Version. Installiert wird sie über das Recovery-System unten.', 'firmware.recoveryTitle': 'Firmware installieren', 'firmware.recoveryDescription': 'Dieses Gerät installiert Firmware über sein Recovery-System: in das Recovery-System neu starten, dort unter „Install from busware“ auf „Check online“ drücken und das Image wählen – das Gerät lädt und prüft es selbst. Ohne diese Seite: Taster S1 beim Anschließen des KNX-Busses drücken und 5 Sekunden gedrückt halten.', 'action.restartRecovery': 'In Recovery neu starten', 'ota.noFile': 'Keine Datei ausgewählt.', 'ota.calculatingMd5': 'Berechne MD5…', 'ota.md5Failed': 'MD5-Berechnung fehlgeschlagen: {error}', 'ota.uploading': 'MD5 {md5} — Upload läuft…', 'ota.success': 'OTA erfolgreich — Gateway startet neu in ~2 s.', 'ota.failed': 'OTA fehlgeschlagen (HTTP {status})', 'ota.networkError': 'OTA: Netzwerkfehler beim Upload.', 'knx.toggleError': 'Fehler beim Umschalten des Programmier-Modus!', 'knx.active': 'AKTIV', 'knx.off': 'AUS', 'knx.storedConfig': 'Gespeicherte Konfiguration:', 'action.resetKnxConfig': 'Zurücksetzen', 'knx.resetConfirm': 'Gespeicherte KNX-Konfiguration (physikalische Adresse, Tunnel-Adressen, Routing-Einstellungen) löschen und das Gateway neu starten? Die ETS muss das Gerät danach neu programmieren. Die WLAN-Einstellungen bleiben erhalten.', 'knx.resetDone': 'KNX-Konfiguration gelöscht. Das Gateway startet jetzt neu.', 'knx.resetError': 'Die KNX-Konfiguration konnte nicht zurückgesetzt werden.', 'wifi.clearConfirm': 'WLAN-Daten löschen und Gateway dauerhaft im AP-Modus neustarten?', 'wifi.cleared': 'WLAN-Daten gelöscht. Das Gateway startet nun im AP-Modus neu.',
                 'knx.yes': 'Ja', 'knx.no': 'Nein', 'status.apMode': 'AP Modus Aktiv', 'status.wifiConnected': 'WLAN Verbunden', 'status.wifiDisconnected': 'WLAN Getrennt', 'status.ethernetActive': 'Ethernet Aktiv', 'status.wifiStandby': 'WLAN Standby'
             }
         };
@@ -782,6 +786,26 @@ const char index_html[] PROGMEM = R"rawliteral(
                 badge.innerText = t('knx.off');
                 badge.className = 'status-badge status-offline';
             }
+        }
+
+        function resetKnxConfig() {
+            if (!confirm(t('knx.resetConfirm'))) return;
+            let btn = document.getElementById('knx-reset-btn');
+            btn.disabled = true;
+            fetch('/api/knx/reset', { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.status === 'ok') {
+                        alert(t('knx.resetDone'));
+                    } else {
+                        alert(t('knx.resetError'));
+                        btn.disabled = false;
+                    }
+                })
+                .catch(e => {
+                    alert(t('knx.resetError'));
+                    btn.disabled = false;
+                });
         }
 
         function startApMode() {

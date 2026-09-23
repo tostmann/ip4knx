@@ -1,6 +1,7 @@
 #include <Network.h>
 #include <Arduino.h>
 #include <WiFi.h>
+#include <EEPROM.h>   // the KNX stack stores its configuration there (/api/knx/reset)
 #include <DNSServer.h>
 #include "version.h"
 #include <knx.h>
@@ -385,6 +386,9 @@ volatile unsigned long acr0RestoreAt = 0;   // millis deadline, 0 = nothing sche
 // /api/progmode handler sets these and loop() applies the change.
 volatile bool progModeReqPending = false;
 volatile bool progModeReqValue   = false;
+// Set by /api/knx/reset; the stored KNX configuration is wiped in loop(), right
+// before the restart, so a save scheduled in between cannot write it back.
+volatile bool knxConfigResetPending = false;
 
 // ESP-IDF private brownout-disable (no public Arduino header for ESP32-C6)
 extern "C" void esp_brownout_disable(void);
@@ -1515,6 +1519,18 @@ void setup() {
     });
 #endif
 
+    // Delete the stored KNX configuration (individual address, tunnel addresses,
+    // routing settings) and restart. Wi-Fi credentials live elsewhere in NVS and
+    // are kept. The wipe itself runs in loop(), not in the async_tcp task.
+    server.on("/api/knx/reset", HTTP_POST, [](AsyncWebServerRequest *request){
+        if (!mutationAllowed(request)) return;
+        Serial.println("Received request to reset the stored KNX configuration.");
+        knxConfigResetPending = true;
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+        pendingReboot = true;
+        rebootTime = millis();
+    });
+
     // ProgMode toggle: accepts ?state=on|off|toggle (default: toggle).
     // Returns the new state after the operation.
     server.on("/api/progmode", HTTP_POST, [](AsyncWebServerRequest *request){
@@ -2220,7 +2236,17 @@ void loop() {
     }
 
     if (pendingReboot && (millis() - rebootTime > 2000)) {
-        Serial.println("Rebooting to apply new WiFi credentials...");
+        if (knxConfigResetPending) {
+            // The KNX stack keeps its configuration in the EEPROM emulation. An
+            // erased image reads back as "all invalid", so the next boot starts
+            // unprogrammed. write() marks the buffer dirty; a bare memset would not.
+            for (uint16_t i = 0; i < EEPROM.length(); i++)
+                EEPROM.write(i, 0xFF);
+            bool ok = EEPROM.commit();
+            Serial.printf("KNX configuration reset (%s), rebooting...\n", ok ? "ok" : "commit failed");
+        } else {
+            Serial.println("Rebooting to apply new WiFi credentials...");
+        }
         ESP.restart();
     }
     
