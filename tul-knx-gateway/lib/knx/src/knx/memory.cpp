@@ -347,6 +347,11 @@ uint32_t Memory::toRelative(uint8_t* absoluteAddress)
     return absoluteAddress - _platform.getNonVolatileMemoryStart();
 }
 
+size_t Memory::memorySize()
+{
+    return _platform.getNonVolatileMemorySize();
+}
+
 MemoryBlock* Memory::removeFromList(MemoryBlock* head, MemoryBlock* item)
 {
     if (head == item)

@@ -88,7 +88,23 @@ const uint8_t* TableObject::restore(const uint8_t* buffer)
     buffer = popInt(relativeAddress, buffer);
     //println(relativeAddress);
 
-    if (relativeAddress != 0)
+    if (_staticTableAdr)
+    {
+        // A static table's address and size are build constants, not stored state.
+        // Memory::readMemory() hands the pointer to addNewUsedBlock(), so one that
+        // does not fit the NVM is left at zero and the table is skipped.
+        if (staticTableFitsNvm())
+        {
+            _size = _staticTableSize;
+            _data = _memory.toAbsolute(_staticTableAdr);
+        }
+        else
+        {
+            _size = 0;
+            _data = 0;
+        }
+    }
+    else if (relativeAddress != 0)
         _data = _memory.toAbsolute(relativeAddress);
     else
         _data = 0;
@@ -98,6 +114,10 @@ const uint8_t* TableObject::restore(const uint8_t* buffer)
 
 uint32_t TableObject::tableReference()
 {
+    // Zero when there is no allocation, instead of 0 minus the NVM start.
+    if (_data == nullptr)
+        return 0;
+
     return (uint32_t)_memory.toRelative(_data);
 }
 
@@ -132,10 +152,23 @@ bool TableObject::allocTable(uint32_t size, bool doFill, uint8_t fillByte)
 }
 
 
+// The address and the extent of a static table are build constants and were never
+// compared against the NVM. The 091A filter table sits at 0x200 with 0x2000 octets,
+// far beyond the 1024-octet NVM this firmware has, so the first Memory::writeMemory()
+// -- run by every A_Restart -- ended in the fatalError() of addNewUsedBlock(): the KNX
+// side stopped for good while WiFi and the web interface kept running.
+bool TableObject::staticTableFitsNvm()
+{
+    return (uint32_t)_staticTableAdr + _staticTableSize <= _memory.memorySize();
+}
+
 void TableObject::allocTableStatic()
 {
     if(_staticTableAdr && !_data)
     {
+        if (!staticTableFitsNvm())
+            return;
+
         _data = _memory.toAbsolute(_staticTableAdr);
         _size = _staticTableSize;
         _memory.addNewUsedBlock(_data, _size);
@@ -193,6 +226,16 @@ void TableObject::loadEventLoading(const uint8_t* data)
         case LE_START_LOADING:
             break;
         case LE_LOAD_COMPLETED:
+            // A table without memory must not report Loaded: its consumers read
+            // data(). A static table gets its block here when no save has placed
+            // it yet; one that does not fit the NVM ends in Error.
+            allocTableStatic();
+            if (_data == nullptr)
+            {
+                loadState(LS_ERROR);
+                errorCode(E_GOT_MEM_ALLOC_ZERO);
+                break;
+            }
             _memory.saveMemory();
             loadState(LS_LOADED);
             break;

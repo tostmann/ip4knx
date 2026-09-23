@@ -63,6 +63,7 @@ class TableObject: public InterfaceObject
     uint32_t tableReference();
     bool allocTable(uint32_t size, bool doFill, uint8_t fillByte);
     void allocTableStatic();
+    bool staticTableFitsNvm();
     void initializeDynTableProperties(size_t propertiesSize, Property** properties);
     void loadEvent(const uint8_t* data);
     void loadEventUnloaded(const uint8_t* data);

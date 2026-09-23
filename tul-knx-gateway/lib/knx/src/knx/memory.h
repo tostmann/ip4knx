@@ -54,6 +54,7 @@ class Memory
     uint8_t* toAbsolute(uint32_t relativeAddress);
     uint8_t* toAbsoluteChecked(uint32_t relativeAddress, size_t size);
     uint32_t toRelative(uint8_t* absoluteAddress);
+    size_t memorySize();
 
     void versionCheckCallback(VersionCheckCallback func);
     VersionCheckCallback versionCheckCallback();
