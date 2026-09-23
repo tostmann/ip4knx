@@ -119,6 +119,14 @@ uint64_t sixBytesToUInt64(uint8_t* data);
 uint16_t crc16Ccitt(uint8_t* input, uint16_t length);
 uint16_t crc16Dnp(uint8_t* input, uint16_t length);
 
+// FNV-1a over the two octets of w, used to fingerprint the stored NVM layout.
+inline uint32_t fnv1aWord(uint32_t hash, uint16_t w)
+{
+    hash = (hash ^ (uint8_t)(w >> 8)) * 16777619u;
+    hash = (hash ^ (uint8_t)(w & 0xFF)) * 16777619u;
+    return hash;
+}
+
 enum ParameterFloatEncodings
 {
     Float_Enc_DPT9 = 0,          // 2 Byte. See Chapter 3.7.2 section 3.10 (Datapoint Types 2-Octet Float Value)

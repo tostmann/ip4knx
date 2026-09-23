@@ -40,4 +40,14 @@ class SaveRestore
     {
         return 0;
     }
+
+    /**
+     * What this record stores, for the layout word in the NVM header. InterfaceObject
+     * overrides it with the identity of the properties it writes; the default adds
+     * nothing beyond the length Memory folds in anyway.
+     */
+    virtual uint32_t layoutTag()
+    {
+        return saveSize();
+    }
 };

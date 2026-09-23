@@ -32,6 +32,9 @@ void Memory::readMemory()
     uint16_t apiVersion = 0;
     const uint8_t* buffer = popWord(apiVersion, flashStart);
 
+    uint16_t layoutWord = 0;
+    buffer = popWord(layoutWord, buffer);
+
     uint16_t manufacturerId = 0;
     buffer = popWord(manufacturerId, buffer);
 
@@ -46,7 +49,18 @@ void Memory::readMemory()
     // first check correct format of deviceObject-API
     if (_deviceObject.apiVersion == apiVersion) 
     {
-        if (_versionCheckCallback != 0) {
+        // The records are read back by position, without lengths or identities. An
+        // image from a build whose stored layout differs -- a property added, an
+        // array resized -- would be parsed field by field into the wrong places.
+        if (layoutWord != layoutFingerprint())
+        {
+            println("stored layout belongs to a different firmware build");
+            print("expected layout: ");
+            print(layoutFingerprint(), HEX);
+            print(", stored layout: ");
+            println(layoutWord, HEX);
+        }
+        else if (_versionCheckCallback != 0) {
             versionCheck = _versionCheckCallback(manufacturerId, hardwareType, version);
             // callback should provide infomation about version check failure reasons
         }
@@ -163,6 +177,34 @@ void Memory::readMemory()
     println("restored TableObjects");
 }
 
+// The word in the NVM header that identifies the stored layout of this build: each
+// registered record contributes its kind, its length and the identity of the
+// properties it writes, in registration order. Computed on demand, because
+// RouterObject fills its property table in initialize(), after registration.
+uint16_t Memory::layoutFingerprint()
+{
+    uint32_t hash = 2166136261u; // FNV-1a offset basis
+
+    for (int i = 0; i < _saveCount; i++)
+        hash = mixRecord(hash, 0x0001, _saveRestores[i]);
+
+    for (int i = 0; i < _tableObjCount; i++)
+        hash = mixRecord(hash, 0x0002, _tableObjects[i]);
+
+    return (uint16_t)((hash >> 16) ^ (hash & 0xFFFF));
+}
+
+uint32_t Memory::mixRecord(uint32_t hash, uint16_t kind, SaveRestore* obj)
+{
+    const uint32_t tag = obj->layoutTag();
+
+    hash = fnv1aWord(hash, kind);
+    hash = fnv1aWord(hash, obj->saveSize());
+    hash = fnv1aWord(hash, (uint16_t)(tag >> 16));
+    hash = fnv1aWord(hash, (uint16_t)tag);
+    return hash;
+}
+
 void Memory::writeMemory()
 {
     // first get the necessary size of the writeBuffer
@@ -178,6 +220,7 @@ void Memory::writeMemory()
     uint8_t* bufferPos = buffer;
 
     bufferPos = pushWord(_deviceObject.apiVersion, bufferPos);
+    bufferPos = pushWord(layoutFingerprint(), bufferPos);
     bufferPos = pushWord(_deviceObject.manufacturerId(), bufferPos);
     bufferPos = pushByteArray(_deviceObject.hardwareType(), LEN_HARDWARE_TYPE, bufferPos);
     bufferPos = pushWord(_deviceObject.version(), bufferPos);
