@@ -376,6 +376,13 @@ void RouterObject::functionRouteTableControl(bool isCommand, uint8_t* data, uint
     if ((srvId == ClearGroupAddress || srvId == SetGroupAddress) && length < 6)
         { resultData[0] = ReturnCodes::GenericError; resultData[1] = srvId; resultLength = 2; return; }
 
+    // The filter table has no memory until it is placed, and on this firmware it
+    // never is: 0x200 + 0x2000 does not fit the NVM. Every service below walks
+    // data(), the state services without any load-state gate. (upstream OpenKNX/knx
+    // 98549ff) The parameter named data hides the member, hence the qualification.
+    if (TableObject::data() == nullptr)
+        { resultData[0] = ReturnCodes::GenericError; resultData[1] = srvId; resultLength = 2; return; }
+
     if (isCommand)
     {
         if (loadState() != LS_LOADING)
