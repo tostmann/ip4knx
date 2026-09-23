@@ -103,9 +103,12 @@ bool Esp32Platform::setupMultiCast(uint32_t addr, uint16_t port)
     }
     IPAddress mcastaddr(htonl(addr));
     
-    // Save for beginPacket
-    _remoteIP = mcastaddr;
-    _remotePort = port;
+    // Kept apart from _remoteIP/_remotePort: readBytesMultiCast() overwrites those
+    // with the sender of every datagram, so a routing indication sent to them went
+    // by unicast to whoever had sent last -- a search client, a tunnel client, another
+    // router -- instead of to the group.
+    _multicastIP = mcastaddr;
+    _multicastPort = port;
 
     println("Initializing KNX multicast.");
     print("  Bind ");
@@ -160,7 +163,7 @@ void Esp32Platform::closeMultiCast()
 bool Esp32Platform::sendBytesMultiCast(uint8_t * buffer, uint16_t len)
 {
     //printHex("<- ",buffer, len);
-    _udp.beginPacket(_remoteIP, _remotePort);
+    _udp.beginPacket(_multicastIP, _multicastPort);
     _udp.write(buffer, len);
     _udp.endPacket();
     return true;

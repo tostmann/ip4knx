@@ -37,8 +37,10 @@ public:
     uint8_t* getEepromBuffer(uint32_t size);
     void commitToEeprom();
 
-    protected: IPAddress _remoteIP;
+    protected: IPAddress _remoteIP;     // last UDP sender, for route-back unicast replies
     protected: uint16_t _remotePort;
+    protected: IPAddress _multicastIP;  // the joined routing group, for sendBytesMultiCast()
+    protected: uint16_t _multicastPort = 0;
 
 private:
     WiFiUDP _udp;
