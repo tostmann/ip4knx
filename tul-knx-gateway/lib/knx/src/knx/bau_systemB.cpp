@@ -298,6 +298,7 @@ void BauSystemB::propertyExtDescriptionReadIndication(Priority priority, HopCoun
 void BauSystemB::propertyValueWriteIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t objectIndex,
     uint8_t propertyId, uint8_t numberOfElements, uint16_t startIndex, uint8_t* data, uint8_t length)
 {
+    bool written = false;
     InterfaceObject* obj = getInterfaceObject(objectIndex);
     if(obj)
     {
@@ -308,10 +309,21 @@ void BauSystemB::propertyValueWriteIndication(Priority priority, HopCountType ho
         // 8 octets for LE_ADDITIONAL_LOAD_CONTROLS; ElementSize does not bound that -> drop a short/corrupt one.
         bool loadCtrlShort = (propertyId == PID_LOAD_STATE_CONTROL && length >= 1
                               && data[0] == LE_ADDITIONAL_LOAD_CONTROLS && length < 8);
-        if (!loadCtrlShort && (prop == nullptr || (uint32_t)numberOfElements * prop->ElementSize() <= length))
+        // Enforce the write-enable flag that A_PropertyDescription_Response reports:
+        // without it a read-only property (serial number, version, manufacturer ID) was
+        // writable from the bus and from any tunnel. Not inside writeProperty(), which
+        // the stack also uses to initialise read-only properties.
+        if (!loadCtrlShort && (prop == nullptr || (prop->WriteEnable() && (uint32_t)numberOfElements * prop->ElementSize() <= length)))
+        {
+            // numberOfElements is in/out: writeProperty() sets it to what the property
+            // accepted, 0 on refusal.
             obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
+            written = (numberOfElements != 0);
+        }
     }
-    propertyValueReadIndication(priority, hopType, asap, secCtrl, objectIndex, propertyId, numberOfElements, startIndex);
+    // A refused write is answered with zero elements and no data, instead of the old
+    // value read back with the requested count, which reported the write as done.
+    propertyValueReadIndication(priority, hopType, asap, secCtrl, objectIndex, propertyId, written ? numberOfElements : 0, startIndex);
 }
 
 void BauSystemB::propertyValueExtWriteIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, ObjectType objectType, uint8_t objectInstance,
@@ -333,6 +345,8 @@ void BauSystemB::propertyValueExtWriteIndication(Priority priority, HopCountType
                               && data[0] == LE_ADDITIONAL_LOAD_CONTROLS && length < 8);
         if (loadCtrlShort || (prop != nullptr && (uint32_t)numberOfElements * prop->ElementSize() > length))
             returnCode = ReturnCodes::DataOverflow;
+        else if (prop != nullptr && !prop->WriteEnable())  // see propertyValueWriteIndication
+            returnCode = ReturnCodes::AccessReadOnly;
         else
             obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
     }

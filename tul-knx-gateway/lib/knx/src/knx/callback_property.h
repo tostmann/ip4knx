@@ -27,6 +27,11 @@ template <class T> class CallbackProperty : public Property
     }
     uint8_t write(uint16_t start, uint8_t count, const uint8_t* data) override
     {
+        // Element 0 is the element count and read-only. The callbacks never look at
+        // start, so a write to index 0 reached them as data (a load event, an address).
+        if (start == 0)
+            return 0;
+
         if (count == 0 || start > _maxElements || start + count > _maxElements + 1 || _writeCallback == nullptr)
             return 0;
         return _writeCallback(_interfaceObject, start, count, data);
