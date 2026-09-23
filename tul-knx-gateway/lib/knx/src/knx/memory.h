@@ -78,6 +78,7 @@ class Memory
     void saveBufferdEraseBlock();
 
     unsigned long _saveTimeout = 0; // timeout for saving memory
+    unsigned long _lastSave = 0;    // millis() of the last timed save, 0 = none yet
     VersionCheckCallback _versionCheckCallback = 0;
     Platform& _platform;
     DeviceObject& _deviceObject;

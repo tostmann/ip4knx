@@ -635,12 +635,22 @@ VersionCheckCallback Memory::versionCheckCallback()
     return _versionCheckCallback;
 }
 
+// A timed save runs five seconds after the last change, and at most once a minute:
+// every accepted property write schedules one, and management has no
+// authentication, so without the spacing a client could force a flash write
+// every five seconds. A change is at most a minute late on flash.
+static const unsigned long kMinSaveIntervalMs = 60000;
+
 void Memory::loop()
 {
-    if(_saveTimeout != 0 && millis() - _saveTimeout > 5000)
+    if(_saveTimeout != 0 && millis() - _saveTimeout > 5000
+       && (_lastSave == 0 || millis() - _lastSave >= kMinSaveIntervalMs))
     {
         println("saveMemory timeout");
         _saveTimeout = 0;
         writeMemory();
+        _lastSave = millis();
+        if (_lastSave == 0)
+            _lastSave = 1; // 0 means no save yet
     }
 }
