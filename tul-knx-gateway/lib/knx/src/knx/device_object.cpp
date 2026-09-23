@@ -117,6 +117,17 @@ uint16_t DeviceObject::individualAddress()
     return _ownAddress;
 }
 
+// The factory address stays until ETS programs one: 15.15.0 for couplers,
+// 15.15.255 for devices (see _ownAddress).
+bool DeviceObject::individualAddressProgrammed()
+{
+#if MASK_VERSION == 0x091A || MASK_VERSION == 0x2920
+    return _ownAddress != 0xFF00;
+#else
+    return _ownAddress != 0xFFFF;
+#endif
+}
+
 void DeviceObject::individualAddress(uint16_t value)
 {
     _ownAddress = value;

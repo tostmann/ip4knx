@@ -46,7 +46,7 @@ IpDataLinkLayer::IpDataLinkLayer(DeviceObject& devObj, IpParameterObject& ipPara
 // Tunnelling is not affected: tunnel clients get their frames from the TP side.
 bool IpDataLinkLayer::routingActive()
 {
-    return _deviceObject.individualAddress() != 0xFF00;
+    return _deviceObject.individualAddressProgrammed();
 }
 
 bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
@@ -54,8 +54,11 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
     if (!routingActive())
     {
         // Nothing to route to while unprogrammed. Confirmed as delivered: the IP
-        // side has no routing peers, and a negative confirmation would reach the
-        // device's own frames as a transmission failure.
+        // side has no routing peers. NetworkLayerCoupler::dataConfirm discards the
+        // confirmation of a routed frame (foreign source) anyway, so this reports
+        // nothing to a TP sender; it only keeps the device's own frames -- the
+        // answers it sends to both sides, such as a programming mode response --
+        // from being reported as failed.
         dataConReceived(frame, true);
         return true;
     }

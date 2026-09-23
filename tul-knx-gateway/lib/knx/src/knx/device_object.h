@@ -17,6 +17,7 @@ public:
     uint16_t saveSize() override;
 
     uint16_t individualAddress();
+    bool individualAddressProgrammed();   // not the factory default any more
     void individualAddress(uint16_t value);
 
     void individualAddressDuplication(bool value);

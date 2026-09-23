@@ -52,7 +52,18 @@ KnxIpSearchResponse::KnxIpSearchResponse(IpParameterObject& parameters, DeviceOb
     prop->read(1, LEN_FRIENDLY_NAME, friendlyName);
     _deviceInfo.friendlyName(friendlyName);
 
+#if MASK_VERSION == 0x091A
+    // Routing is announced only while it runs: an unprogrammed coupler neither
+    // sends nor accepts routing indications (IpDataLinkLayer::routingActive()).
+    // The service DIB is the last block of the frame, so leaving the family out
+    // shortens the frame by its two octets.
+    const bool routing = deviceObject.individualAddressProgrammed();
+    if (!routing)
+        totalLength(totalLength() - LEN_SERVICE_FAMILIES);
+    _supportedServices.length(routing ? LEN_SERVICE_DIB : LEN_SERVICE_DIB - LEN_SERVICE_FAMILIES);
+#else
     _supportedServices.length(LEN_SERVICE_DIB);
+#endif
     _supportedServices.code(SUPP_SVC_FAMILIES);
     _supportedServices.serviceVersion(Core, KNX_SERVICE_FAMILY_CORE);
     _supportedServices.serviceVersion(DeviceManagement, KNX_SERVICE_FAMILY_DEVICE_MANAGEMENT);
@@ -60,7 +71,8 @@ KnxIpSearchResponse::KnxIpSearchResponse(IpParameterObject& parameters, DeviceOb
     _supportedServices.serviceVersion(Tunnelling, KNX_SERVICE_FAMILY_TUNNELING);
 #endif
 #if MASK_VERSION == 0x091A
-    _supportedServices.serviceVersion(Routing, KNX_SERVICE_FAMILY_ROUTING);
+    if (routing)
+        _supportedServices.serviceVersion(Routing, KNX_SERVICE_FAMILY_ROUTING);
 #endif
 }
 
