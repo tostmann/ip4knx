@@ -53,6 +53,8 @@ void TableObject::loadState(LoadState newState)
         return;
     beforeStateChange(newState);
     _state = newState;
+    // The load state belongs to the stored configuration.
+    _memory.scheduleSave();
 }
 
 
@@ -243,7 +245,8 @@ void TableObject::loadEventLoading(const uint8_t* data)
                 errorCode(E_GOT_MEM_ALLOC_ZERO);
                 break;
             }
-            _memory.saveMemory();
+            // No raw commit of the NVM buffer here: loadState() schedules a full
+            // save, which writes the buffer together with the metadata.
             loadState(LS_LOADED);
             break;
         case LE_UNLOAD:

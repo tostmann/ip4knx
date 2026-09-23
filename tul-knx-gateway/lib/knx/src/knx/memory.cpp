@@ -223,6 +223,16 @@ void Memory::saveMemory()
     _platform.commitNonVolatileMemory();
 }
 
+// Store the configuration five seconds after the last change (Memory::loop()).
+// Until now only freeMemory() armed the timer, which a static table never reaches,
+// so on the 091A nothing was stored except on A_Restart.
+void Memory::scheduleSave()
+{
+    _saveTimeout = millis();
+    if (_saveTimeout == 0)
+        _saveTimeout = 1; // prevent 0=disabled
+}
+
 void Memory::addSaveRestore(SaveRestore* obj)
 {
     if (_saveCount >= MAXSAVE - 1)

@@ -321,6 +321,8 @@ void BauSystemB::propertyValueWriteIndication(Priority priority, HopCountType ho
             // accepted, 0 on refusal.
             obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
             written = (numberOfElements != 0);
+            if (written)
+                _memory.scheduleSave();
         }
     }
     // A refused write is answered with zero elements and no data, instead of the old
@@ -350,7 +352,11 @@ void BauSystemB::propertyValueExtWriteIndication(Priority priority, HopCountType
         else if (prop != nullptr && !prop->WriteEnable())  // see propertyValueWriteIndication
             returnCode = ReturnCodes::AccessReadOnly;
         else
+        {
             obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
+            if (numberOfElements != 0)
+                _memory.scheduleSave();
+        }
     }
     else
         returnCode = ReturnCodes::AddressVoid;
@@ -664,7 +670,10 @@ void BauSystemB::individualAddressReadIndication(HopCountType hopType, const Sec
 void BauSystemB::individualAddressWriteIndication(HopCountType hopType, const SecurityControl &secCtrl, uint16_t newaddress)
 {
     if (_deviceObj.progMode())
+    {
         _deviceObj.individualAddress(newaddress);
+        _memory.scheduleSave();
+    }
 }
 
 void BauSystemB::individualAddressSerialNumberWriteIndication(Priority priority, HopCountType hopType, const SecurityControl &secCtrl, uint16_t newIndividualAddress,
@@ -673,7 +682,10 @@ void BauSystemB::individualAddressSerialNumberWriteIndication(Priority priority,
     // If the received serial number matches our serial number
     // then store the received new individual address in the device object
     if (!memcmp(knxSerialNumber, _deviceObj.propertyData(PID_SERIAL_NUMBER), 6))
+    {
         _deviceObj.individualAddress(newIndividualAddress);
+        _memory.scheduleSave();
+    }
 }
 
 void BauSystemB::individualAddressSerialNumberReadIndication(Priority priority, HopCountType hopType, const SecurityControl &secCtrl, uint8_t* knxSerialNumber)
@@ -832,7 +844,14 @@ void BauSystemB::propertyValueWrite(ObjectType objectType, uint8_t objectInstanc
         if (loadCtrlShort || (prop != nullptr && (uint32_t)numberOfElements * prop->ElementSize() > length))
             numberOfElements = 0;
         else
+        {
             obj->writeProperty((PropertyID)propertyId, startIndex, data, numberOfElements);
+            // Only a write-enabled property is stored. cEMI clients write the
+            // read-only PID_COMM_MODE on every connection; that must not cost a
+            // flash write each time.
+            if (numberOfElements != 0 && prop != nullptr && prop->WriteEnable())
+                _memory.scheduleSave();
+        }
     }
     else
         numberOfElements = 0;
