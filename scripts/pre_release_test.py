@@ -16,7 +16,7 @@ Coverage (per device, 11 checks):
                               (cherry-pick 1bd8201)
   9.  apdu_length_router      PID_MAX_APDU_LENGTH_ROUTER == 254
                               (cherry-pick b50301e)
-  10. routing_indication      multicast 224.0.23.12 receives IND
+  10. routing_indication      IP->TP routing gate (knx_routing: routed / ignored)
   11. heap_stability          heap delta after full sweep ≤ 20 KB drop
 
 Plus a cross-device consistency check (firmware version match).
@@ -476,58 +476,43 @@ def t_apdu_length_router(dev: Device):
 
 @timed
 def t_routing_indication(dev: Device):
-    # Routing indications require the 091A coupler to be ETS-programmed
-    # (knx_configured=true). On a factory-fresh device they're a no-op.
-    if not dev.status.get("knx_configured"):
-        return "SKIP", "knx_configured=false — routing not active without ETS"
-    # Listen on multicast 224.0.23.12:3671 for routing indications.
-    mcast_addr = "224.0.23.12"
-    port = 3671
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try: s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    except Exception: pass
-    try:
-        s.bind(("", port))
-    except OSError as e:
-        return "SKIP", f"cannot bind {port} for multicast listen: {e}"
-    mreq = struct.pack("=4sl", socket.inet_aton(mcast_addr), socket.INADDR_ANY)
-    s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-    s.settimeout(2.0)
+    # KNXnet/IP routing runs only once the device has an individual address other
+    # than 15.15.0 (/api/status knx_routing, since v1.4.27). The gate is testable
+    # from IP alone: a ROUTING_INDICATION sent to the group must reach TP while
+    # routing is active and must be ignored while it is not. Main group 14 is
+    # routed without a filter table (GROUP_7000UNLOCK), so no ETS project is needed.
+    routing = dev.status.get("knx_routing")
+    if routing is None:
+        return "SKIP", "firmware reports no knx_routing"
 
-    received = []
-    stop = threading.Event()
-    def listen():
-        while not stop.is_set():
-            try:
-                data, _ = s.recvfrom(1024)
-                hdr = parse_header(data)
-                if hdr and hdr[0] == 0x0530:  # ROUTING_INDICATION
-                    received.append(data)
-            except socket.timeout:
-                pass
-            except OSError:
-                return
-    th = threading.Thread(target=listen, daemon=True)
-    th.start()
+    def tx_frames():
+        code, body = http_get(dev.host, "/api/status")
+        return body.get("tx_frames") if code == 200 else None
 
-    c = TunClient(dev.host, "ROUTE", verbose=False)
+    tx0 = tx_frames()
+    if tx0 is None:
+        return "FAIL", "status unreachable"
+    # L_Data.ind, source 1.1.250, group 14/0/7, GroupValue_Write 1
+    cemi = bytes([0x29, 0x00, 0xBC, 0xE0, 0x11, 0xFA, 0x70, 0x07, 0x01, 0x00, 0x81])
+    pkt = struct.pack(">BBHH", 0x06, 0x10, 0x0530, 6 + len(cemi)) + cemi
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     try:
-        c.connect()
-        dst = group_to_int("0/0/7")
-        c.send_tunneling(build_cemi_group_write(0, dst, value=0x42))
-        deadline = time.time() + 2.0
-        while time.time() < deadline:
-            if received: break
-            time.sleep(0.05)
-        if not received:
-            return "FAIL", "no ROUTING_INDICATION on 224.0.23.12 within 2 s"
-        return "PASS", f"{len(received)} routing indication(s) observed"
+        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+        s.sendto(pkt, ("224.0.23.12", 3671))
     finally:
-        c.disconnect()
-        stop.set()
-        try: s.close()
-        except Exception: pass
+        s.close()
+    time.sleep(1.5)
+    tx1 = tx_frames()
+    if tx1 is None:
+        return "FAIL", "status unreachable after sending"
+    sent = tx1 - tx0
+    if routing:
+        if sent >= 1:
+            return "PASS", f"routing active: indication for 14/0/7 put on TP (tx +{sent})"
+        return "FAIL", "routing active, but the indication for 14/0/7 did not reach TP"
+    if sent == 0:
+        return "PASS", "unprogrammed (15.15.0): routing indication ignored"
+    return "FAIL", f"unprogrammed, but the indication reached TP (tx +{sent})"
 
 
 @timed
