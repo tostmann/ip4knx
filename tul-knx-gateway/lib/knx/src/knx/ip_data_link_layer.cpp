@@ -675,12 +675,24 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
     // read current elements in PID_ADDITIONAL_INDIVIDUAL_ADDRESSES 
     uint16_t propCount = 0;
     _ipParameters.readPropertyLength(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES, propCount);
-    const uint8_t *addresses;
+    const uint8_t *addresses = nullptr;
     if(propCount == KNX_TUNNELING)
-    {
         addresses = _ipParameters.propertyData(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES);
+
+    // Tunnel addresses belong to the line of the device. The pool below is made
+    // from the device address when there is none, and since the configuration is
+    // stored it survives a later change of that address: after the device moved to
+    // another line, clients would keep getting addresses from the old one. A pool
+    // outside the device's line is therefore made anew.
+    if(addresses != nullptr && addresses[0] != (_deviceObject.individualAddress() >> 8))
+    {
+#ifdef KNX_LOG_TUNNELING
+        println("Tunnel-PAs are outside the device's line, renewing them");
+#endif
+        addresses = nullptr;
     }
-    else    // no tunnel PA configured, that means device is unconfigured and has 15.15.0
+
+    if(addresses == nullptr)    // no tunnel PA configured, that means device is unconfigured and has 15.15.0
     {
         uint8_t addrbuffer[KNX_TUNNELING*2];
         addresses = (uint8_t*)addrbuffer;
