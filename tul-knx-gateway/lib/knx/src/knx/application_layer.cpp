@@ -1055,6 +1055,13 @@ void ApplicationLayer::memorySend(ApduType type, AckType ack, Priority priority,
 void ApplicationLayer::memoryRouterSend(ApduType type, AckType ack, Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl& secCtrl, uint8_t number,
     uint16_t memoryAddress, uint8_t * memoryData)
 {
+    // The payload is copied to apdu.data() + 4, 14 octets into the 264-octet frame
+    // buffer, independently of the length the frame accepts: bound it the way the
+    // property builders are bounded, or a count above 250 runs into the members
+    // behind the buffer.
+    if (number > 250)
+        number = 250;
+
     CemiFrame frame(4 + number);
     APDU& apdu = frame.apdu();
     apdu.type(type);
@@ -1069,6 +1076,13 @@ void ApplicationLayer::memoryRouterSend(ApduType type, AckType ack, Priority pri
 void ApplicationLayer::memoryRoutingTableSend(ApduType type, AckType ack, Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl& secCtrl, uint8_t number,
     uint16_t memoryAddress, uint8_t * memoryData)
 {
+    // The payload is copied to apdu.data() + 4, 14 octets into the 264-octet frame
+    // buffer, independently of the length the frame accepts: bound it the way the
+    // property builders are bounded, or a count above 250 runs into the members
+    // behind the buffer.
+    if (number > 250)
+        number = 250;
+
     CemiFrame frame(4 + number);
     APDU& apdu = frame.apdu();
     apdu.type(type);

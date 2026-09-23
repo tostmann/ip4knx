@@ -142,7 +142,9 @@ void BauSystemB::memoryRoutingTableReadIndication(Priority priority, HopCountTyp
 void BauSystemB::memoryRoutingTableReadIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint8_t number, uint16_t memoryAddress)
 {
     uint8_t* p = _memory.toAbsoluteChecked(memoryAddress, number);
-    if (p == nullptr) number = 0; // OOB read guard: keep the response within NVM
+    // OOB read guard: keep the response within NVM. A count above 250 does not fit
+    // one response frame; answer it without data rather than truncated.
+    if (p == nullptr || number > 250) number = 0;
     memoryRoutingTableReadIndication(priority, hopType, asap, secCtrl, number, memoryAddress, p);
 }
 
