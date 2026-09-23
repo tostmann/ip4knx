@@ -448,8 +448,10 @@ void CemiServer::handleMReset(CemiFrame& frame, uint8_t channelId)
     println("M_Reset_req: sending M_Reset_ind");
     // A real device reset does not work for USB or KNXNET/IP.
     // Thus, M_Reset_ind is NOT mandatory for USB and KNXNET/IP.
-    // We just save all data to the EEPROM
-    _bau.writeMemory();
+    // We just save all data to the EEPROM -- through the timed save, which keeps a
+    // minute between two flash writes. A direct writeMemory() here let every
+    // M_Reset_req from a device management connection rewrite the whole blob.
+    _bau.memory().scheduleSave();
     // Prepare response
     uint8_t responseData[1];
     CemiFrame responseFrame(responseData, sizeof(responseData));
