@@ -5,9 +5,9 @@ integration that ships with Home Assistant speaks KNXnet/IP natively, so it
 connects to the stick **directly — no knxd, no add-on.**
 
 Verified end-to-end on test hardware with Home Assistant 2026.9.3 (KNX library
-xknx 3.20.0) and ip4knx v1.4.29, with a TUL32 (ESP32-C6) as Home Assistant's
-gateway — once over Wi-Fi, once over the W5500 ethernet module — and a TUL
-(ESP32-C3) as a second participant on the same KNX line:
+xknx 3.20.0), with a TUL32 (ESP32-C6) as Home Assistant's gateway and a TUL
+(ESP32-C3) as a second participant on the same KNX line — on ip4knx v1.4.29 over
+Wi-Fi and over the W5500 ethernet module, and on v1.4.30 over the W5500 module:
 switch commands from Home Assistant reached the bus, and telegrams from the bus
 (a switch state and a DPT 9.001 temperature) updated Home Assistant entities.
 
