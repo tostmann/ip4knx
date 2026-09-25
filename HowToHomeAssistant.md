@@ -69,9 +69,9 @@ end of the list and enter
 
 ip4knx implements tunneling over UDP (Tunneling v1). *TCP (Tunneling v2)* and
 *Secure Tunneling (TCP)* are not supported; Home Assistant rejects them with
-*"Selected tunneling type not supported by gateway."* Route back works: a tunnel
-opened with Home Assistant's KNX library from a Docker bridge network sent and
-received telegrams in our test.
+*"Selected tunneling type not supported by gateway."* Route back was tested with
+Home Assistant's KNX library: a tunnel from a Docker bridge network sent and
+received telegrams.
 
 ### Why not *Automatic*?
 
@@ -131,13 +131,18 @@ This is not a gateway fault.
   the entity follows and the RX counter increments.
 * The KNX panel's *Group Monitor* shows each telegram with source and
   destination. Telegrams Home Assistant sends carry its tunnel address (next
-  section).
+  section). All group telegrams of the line appear there; a telegram addressed
+  to an individual device appears only if it is addressed to Home Assistant's
+  tunnel address, as the KNXnet/IP Tunnelling specification requires.
 
 ## Tunnel addresses
 
-Each tunnel gets its own individual address from the stick, and ip4knx rewrites
-the source address of every telegram a tunnel client sends to that address
-(KNXnet/IP Core §4.4). The stick takes these addresses from its own line:
+Each tunnel gets its own individual address from the stick, and telegrams a
+client sends through its tunnel carry it. ip4knx also replaces a source address
+the client filled in itself — a deliberate deviation from the KNXnet/IP
+Tunnelling specification, which would pass it unchanged, so that no client can
+send under another address. Unless tunnel addresses were written through
+KNXnet/IP device management, the stick takes them from its own line:
 `<area>.<line>.1` to `<area>.<line>.10` — **`15.15.1` to `15.15.10`** while the
 stick still has the default address `15.15.0`.
 
@@ -150,9 +155,10 @@ Tunnel addresses must be unique on the bus:
   stick its own individual address with ETS.
 * **After an individual address is assigned, the tunnel addresses move to that
   line** — `1.1.1` to `1.1.10` for a stick at `1.1.250`. No device on that line
-  may use these addresses.
-* ETS, Home Assistant, Node-RED etc. each occupy one of the 10 tunnels; an 11th
-  connection is refused.
+  may use these addresses. The move takes effect with the next connection; a
+  tunnel that is already open keeps its address until it reconnects.
+* Every KNXnet/IP connection — tunneling or device management — takes one of the
+  10 slots (ETS, Home Assistant, Node-RED …); an 11th connection is refused.
 
 ## TUL32 on ethernet (W5500)
 

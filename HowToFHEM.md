@@ -43,11 +43,13 @@ define KNXGW KNXIO H <IP-OF-IP4KNX>:3671 <FREE-IA>
 
 * `<IP-OF-IP4KNX>` — the address shown on the dashboard; `3671` is the standard
   KNXnet/IP port.
-* `<FREE-IA>` — an individual address for FHEM, e.g. `1.1.250`. With tunneling
+* `<FREE-IA>` — an individual address for FHEM, e.g. `1.1.200`. With tunneling
   it does not appear on the bus: ip4knx assigns each tunnel its own individual
-  address and **rewrites** the source address of outgoing frames to it
-  (KNXnet/IP Core §4.4). It only has to be a syntactically valid address. The
-  address that has to be free on the bus is the tunnel address — see
+  address and **rewrites** the source address of every telegram FHEM sends
+  through the tunnel to it — also when FHEM fills in its own, a deliberate
+  deviation from the KNXnet/IP Tunnelling specification, which would pass that
+  unchanged. It only has to be a syntactically valid address. The address that
+  has to be free on the bus is the tunnel address — see
   [Tunnel addresses](#tunnel-addresses).
 
 Check it came up:
@@ -123,7 +125,8 @@ direct, knxd-free path works in both directions.
 ## Tunnel addresses
 
 In Mode H, telegrams from FHEM appear on the bus with the tunnel's individual
-address. The stick takes these addresses from its own line: `<area>.<line>.1` to
+address. Unless tunnel addresses were written through KNXnet/IP device
+management, the stick takes them from its own line: `<area>.<line>.1` to
 `<area>.<line>.10` — **`15.15.1` to `15.15.10`** while the stick still has the
 default address `15.15.0`.
 
@@ -136,7 +139,10 @@ Tunnel addresses must be unique on the bus:
   stick its own individual address with ETS.
 * **After an individual address is assigned, the tunnel addresses move to that
   line** — `1.1.1` to `1.1.10` for a stick at `1.1.250`. No device on that line
-  may use these addresses.
+  may use these addresses. The move takes effect with the next connection; a
+  tunnel that is already open keeps its address until it reconnects.
+* Every KNXnet/IP connection — tunneling or device management — takes one of the
+  10 slots; an 11th connection is refused.
 
 ## Mode reference
 
