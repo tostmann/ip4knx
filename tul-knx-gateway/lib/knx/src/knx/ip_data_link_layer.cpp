@@ -1120,6 +1120,17 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
     _platform.sendBytesUniCast(tun->IpAddress, tun->PortData, tunnAck.data(), tunnAck.totalLength());
 
     tun->lastHeartbeat = millis();
+
+    // A device configuration request carries local device management services
+    // only (03_08_03 4.2.5: M_PropRead/Write, M_Reset, M_FuncProp*). An L_Data.req
+    // taken from here would reach the bus without the source check that
+    // loopHandleTunnelingRequest applies, so a client could send under any address.
+    if (confReq.frame().messageCode() == L_data_req)
+    {
+        println("L_Data.req in a device configuration request -> ignored");
+        return;
+    }
+
     _cemiServer->frameReceived(confReq.frame(), tun->ChannelId);
 }
 
@@ -1200,12 +1211,11 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
 
     tun->SequenceCounter_R = tunnReq.connectionHeader().sequenceCounter();
 
-    // Tunnel source validation per KNXnet/IP Tunnelling §4.4: source MUST be
-    // either 0x0000 (= "fill in the assigned IA") or the IA this channel was
-    // given. Anything else is either a spoofing attempt or a misbehaving
-    // client. Rewriting matches the behaviour of MDT/Weinzierl/Gira gateways
-    // — keeps ETS commissioning working when a tool sends a non-zero source,
-    // and stops a client from impersonating another tunnel's address.
+    // Tunnel source: 03_08_04 (Tunnelling v01.07.01, p.7) has the server fill in
+    // the assigned IA for source 0x0000 and send any other source unchanged. We
+    // deliberately rewrite any other source too: a client must not send under
+    // another tunnel's or a bus device's address, and a tool that puts a non-zero
+    // source in its frames still works.
     //
     // GUARD: only apply to L_Data_req. CemiFrame::sourceAddress() unconditionally
     // reads/writes bytes at _ctrl1+2 (= addl_info_len+4 from cEMI start), which
