@@ -6,10 +6,10 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 
 ## 🌟 Features
 
-*   **Prio 1: Home Assistant Support:** Auto-discovery via KNXnet/IP Routing and complete multi-client support.
+*   **Prio 1: Home Assistant Support:** The Home Assistant KNX integration finds the stick with its gateway scan and connects through a KNXnet/IP tunnel — no knxd, no add-on. See [HowToHomeAssistant.md](HowToHomeAssistant.md).
 *   **High Performance Concurrency:** Supports up to **10 concurrent KNXnet/IP Tunneling connections** (e.g., simultaneous use of ETS, Home Assistant, Node-RED, etc.).
 *   **Tunnel Source-Address Validation:** Each tunnel gets an assigned individual address; frames with a foreign source IA are rewritten before broadcast (KNXnet/IP Core §4.4, matching MDT/Weinzierl/Gira gateway behavior). Stops one tunnel client from impersonating another.
-*   **Optional Wired Ethernet (TUL32):** A W5500 module on the TUL32's FPC header is detected at boot, so one build serves a populated and an unpopulated board. The interface takes the busware MAC burnt into eFuse, and once the cable has a link and a DHCP lease the Wi-Fi radio is parked — the gateway then holds exactly one address on the network. Stored credentials survive, and the radio returns when the cable is pulled. KNXnet/IP routing follows the active interface and re-joins its multicast group on a cable change; the dashboard shows ethernet link, IP and MAC. The TUL (ESP32-C3) has no such header and is built without the ethernet code.
+*   **Optional Wired Ethernet (TUL32):** A W5500 module on the TUL32's FPC header is detected at boot, so one build serves a populated and an unpopulated board. The interface takes the busware MAC programmed into eFuse during production (a board without one keeps the address derived from the chip MAC), and once the cable has a link and a DHCP lease the Wi-Fi radio is parked — the gateway then holds exactly one address on the network. The address comes from DHCP (IPv4); there is no static-address setting. Stored Wi-Fi credentials survive, and the radio returns when the cable is pulled. Because the wired interface has its own MAC, it gets its own DHCP lease: the gateway is reachable under a different IP on cable than on Wi-Fi, so clients that store the address (ETS, Home Assistant) have to be pointed at the one in use. KNXnet/IP routing follows the active interface and re-joins its multicast group on a cable change; discovery answers with the address of the active interface. Dashboard, mDNS and the online update check work over the cable, and the dashboard shows ethernet link, IP and MAC. The TUL (ESP32-C3) has no such header and is built without the ethernet code.
 *   **Hardened Web Surface:** All state-changing HTTP endpoints are cross-origin (CSRF) gated — a request whose `Origin` does not match the `Host` is rejected — and the captive AP is restricted to onboarding only (scan/connect/status). Same-origin browser UI and non-browser clients (curl/scripts) are unaffected.
 *   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP <MAC>`). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard. A gateway that is already carried by an ethernet cable stays off the air and does not open this AP.
 *   **Web-Based Wi-Fi Setup:** Click the status badge in the web dashboard to open the Wi-Fi configuration modal. Perform a live scan of nearby networks, select your SSID, and enter the password. The gateway will save the credentials and seamlessly reboot into client mode.
@@ -79,8 +79,16 @@ The firmware is designed for a seamless "Installer Mode" experience on the const
 1. **Plug the TUL stick into a USB port or power bank.**
 2. **Connect to the Gateway:** If no Wi-Fi credentials are saved (factory state), the gateway will immediately broadcast an open Wi-Fi network named `TUL AP <MAC>`. Connect to this network with your smartphone or laptop.
 3. **Captive Portal:** A sign-in prompt should automatically appear (Captive Portal), redirecting you to the gateway's web dashboard. If it doesn't, manually open `http://192.168.4.1` in your browser.
-4. **Configure Wi-Fi:** Click on the blue "AP Modus Aktiv" badge in the top right corner. A modal will open. Click "WLAN Netzwerke suchen", select the target Wi-Fi, enter the password, and hit Connect. The device will save the credentials, disable the AP, and reboot into your local network.
+4. **Configure Wi-Fi:** Click on the "AP Mode Active" badge in the top right corner. A modal will open. Click "Scan Wi-Fi Networks", select the target Wi-Fi, enter the password, and hit "Connect & Restart". The device will save the credentials, disable the AP, and reboot into your local network.
 5. **Manual AP Override:** You can force the gateway into AP Mode at any time by pressing and holding the push button on the stick for >2 seconds.
+
+### Alternative: Wired Ethernet (TUL32 with W5500 module)
+With the W5500 module fitted, no Wi-Fi setup is needed:
+1. **Connect the ethernet cable before powering the stick.** At boot the gateway waits briefly for a link and a DHCP lease; if the cable carries it, the Wi-Fi radio stays off and no access point is opened.
+2. **Find the address** in your router's DHCP lease list (the stick registers as `tul-<4 hex digits>`) or open `http://tul.local`.
+3. **Optional Wi-Fi fallback:** store Wi-Fi credentials through the dashboard — the scan wakes the radio, "Connect & Restart" restarts the gateway, and the cable takes over again. If the cable is pulled later, the gateway continues on Wi-Fi under its Wi-Fi address.
+
+A stick without Wi-Fi credentials that boots without a cable opens its setup access point. Plugging the cable in afterwards brings the wired interface up, but the setup access point stays open until the next restart.
 
 ### Alternative: Improv-WiFi Provisioning via USB
 During the first 120 seconds after powering on, you can also provision Wi-Fi credentials via USB:
@@ -90,6 +98,10 @@ During the first 120 seconds after powering on, you can also provision Wi-Fi cre
     pip install pyserial
     python3 scripts/test_improv.py --port /dev/ttyACM0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
     ```
+
+## 🏠 Connecting Home Assistant
+
+The built-in Home Assistant KNX integration connects to ip4knx directly through a KNXnet/IP tunnel — **no knxd and no add-on required.** See **[HowToHomeAssistant.md](HowToHomeAssistant.md)** for the setup, the tunnel addresses the stick hands out, and troubleshooting.
 
 ## 🏠 Connecting FHEM (without knxd)
 
