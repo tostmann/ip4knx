@@ -134,4 +134,37 @@ IpParameterObject::IpParameterObject(DeviceObject& deviceObject, Platform& platf
     property(PID_FRIENDLY_NAME)->write(1, 30, defaultFriendlyName);
 }
 
+#ifdef KNX_TUNNELING
+// .241 upwards on the device's own line. The bottom of a line is where devices get
+// their addresses, and a tunnel address that a device also uses cuts that device
+// off from the tunnel client and collides on the bus. The device's own address is
+// skipped, since a router does not hand it out for tunnelling (08_TSSH 5.3.1); the
+// range then ends one higher. x.y.0 and x.y.255 are never produced.
+static_assert(KNX_TUNNELING <= 13, "tunnel addresses from .241 would reach .255");
+
+void IpParameterObject::defaultTunnelAddresses(uint16_t ownAddress, uint8_t* out)
+{
+    const uint8_t line = ownAddress >> 8;
+    uint8_t device = 241;
+    for (int i = 0; i < KNX_TUNNELING; i++)
+    {
+        if (device == (ownAddress & 0xFF))
+            device++;
+        out[i * 2] = line;
+        out[i * 2 + 1] = device++;
+    }
+}
+
+bool IpParameterObject::isLegacyTunnelAddresses(uint16_t ownAddress, const uint8_t* addresses)
+{
+    const uint8_t line = ownAddress >> 8;
+    for (int i = 0; i < KNX_TUNNELING; i++)
+    {
+        if (addresses[i * 2] != line || addresses[i * 2 + 1] != i + 1)
+            return false;
+    }
+    return true;
+}
+#endif
+
 #endif

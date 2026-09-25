@@ -121,18 +121,18 @@ void KnxIpSearchResponseExtended::setTunnelingInfo(IpParameterObject& parameters
     uint16_t length = 0;
     parameters.readPropertyLength(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES, length);
     
+    // Function scope: `addresses` may point here and is read by the loop below
+    // (upstream 22c58ce).
+    uint8_t addrbuffer[KNX_TUNNELING*2];
     const uint8_t *addresses;
     if(length == KNX_TUNNELING)
     {
         addresses = parameters.propertyData(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES);
     } else {
-        uint8_t addrbuffer[KNX_TUNNELING*2];
-        addresses = (uint8_t*)addrbuffer;
-        for(int i = 0; i < KNX_TUNNELING; i++)
-        {
-            addrbuffer[i*2+1] = i+1;
-            addrbuffer[i*2] = deviceObject.individualAddress() / 0x0100;
-        }
+        // The pool the connect handler would make (IpDataLinkLayer). `length`
+        // stays as stored: the caller sized the DIB from it.
+        IpParameterObject::defaultTunnelAddresses(deviceObject.individualAddress(), addrbuffer);
+        addresses = addrbuffer;
     }
 
     for(int i = 0; i < length; i++)

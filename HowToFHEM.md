@@ -126,9 +126,12 @@ direct, knxd-free path works in both directions.
 
 In Mode H, telegrams from FHEM appear on the bus with the tunnel's individual
 address. Unless tunnel addresses were written through KNXnet/IP device
-management, the stick takes them from its own line: `<area>.<line>.1` to
-`<area>.<line>.10` — **`15.15.1` to `15.15.10`** while the stick still has the
-default address `15.15.0`.
+management, the stick takes them from the top of its own line:
+`<area>.<line>.241` to `<area>.<line>.250` — **`15.15.241` to `15.15.250`** while
+the stick still has the default address `15.15.0`. If the stick's own address
+lies in that range, it is skipped and the range ends at `.251`. Firmware up to
+v1.4.29 used `.1` to `.10`; a stick updated from it moves to the new range with
+the next connection.
 
 Tunnel addresses must be unique on the bus:
 
@@ -138,8 +141,9 @@ Tunnel addresses must be unique on the bus:
   a client with the same address on the other stick sends (measured). Give each
   stick its own individual address with ETS.
 * **After an individual address is assigned, the tunnel addresses move to that
-  line** — `1.1.1` to `1.1.10` for a stick at `1.1.250`. No device on that line
-  may use these addresses. The move takes effect with the next connection; a
+  line** — `1.1.241` to `1.1.250` for a stick at `1.1.0`, `1.1.241` to `1.1.249`
+  and `1.1.251` for a stick at `1.1.250`. No device on that line may use these
+  addresses. The move takes effect with the next connection; a
   tunnel that is already open keeps its address until it reconnects.
 * Every KNXnet/IP connection — tunneling or device management — takes one of the
   10 slots; an 11th connection is refused.

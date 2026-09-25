@@ -712,11 +712,16 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
     // from the device address when there is none, and since the configuration is
     // stored it survives a later change of that address: after the device moved to
     // another line, clients would keep getting addresses from the old one. A pool
-    // outside the device's line is therefore made anew.
-    if(addresses != nullptr && addresses[0] != (_deviceObject.individualAddress() >> 8))
+    // outside the device's line is therefore made anew, and so is the .1 to .10
+    // pool that firmware up to 1.4.29 made on the device's own line. A pool written
+    // through device management that happens to be exactly .1 to .10 is renewed
+    // as well.
+    const uint16_t ownAddress = _deviceObject.individualAddress();
+    if(addresses != nullptr && (addresses[0] != (ownAddress >> 8) ||
+                                IpParameterObject::isLegacyTunnelAddresses(ownAddress, addresses)))
     {
 #ifdef KNX_LOG_TUNNELING
-        println("Tunnel-PAs are outside the device's line, renewing them");
+        println("Tunnel-PAs are outside the device's line or the old default, renewing them");
 #endif
         addresses = nullptr;
     }
@@ -724,12 +729,7 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
     if(addresses == nullptr)    // no tunnel PA configured, that means device is unconfigured and has 15.15.0
     {
         uint8_t addrbuffer[KNX_TUNNELING*2];
-        addresses = (uint8_t*)addrbuffer;
-        for(int i = 0; i < KNX_TUNNELING; i++)
-        {
-            addrbuffer[i*2+1] = i+1;
-            addrbuffer[i*2] = _deviceObject.individualAddress() / 0x0100;
-        }
+        IpParameterObject::defaultTunnelAddresses(ownAddress, addrbuffer);
         uint8_t count = KNX_TUNNELING;
         _ipParameters.writeProperty(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES, 1, addrbuffer, count);
         // re-point `addresses` at the property's live storage: addrbuffer[] is block-scoped
