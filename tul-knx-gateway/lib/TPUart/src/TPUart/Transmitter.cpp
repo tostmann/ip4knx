@@ -72,6 +72,7 @@ namespace TPUart
     void Transmitter::processQueue()
     {
         if (_state != TX_IDLE) return;
+        if (_dll._resetPending) return; // transceiver restarting after our reset
         if (_dll._receiver._invalid) return;
         if (_queue.empty()) return;
 

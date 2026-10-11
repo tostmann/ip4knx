@@ -106,6 +106,12 @@ namespace TPUart
         // receivedReset() and the reconfiguration that follows.
         _lastHostRequestAt = millis();
         _interface->write(U_RESET_REQ);
+        // Until the answer the transceiver restarts: hold the queue, rather than
+        // write frame octets it would ignore or take for commands (NCN5130 DS p.31,
+        // Table 11: in Power-Up and Sync it rejects U_L_Data* but executes, say,
+        // U_SetAddress.req).
+        _resetPending = true;
+        _resetPendingSince = millis();
         _modeExtendedCRC = false;
         _lastDiscardedBytes = 0;
         _receiver._invalid = false;
@@ -412,6 +418,9 @@ namespace TPUart
         exitBusyModeTimer();
         processRequestState();
 
+        // The answer to our own reset never came: stop holding the queue.
+        if (_resetPending && millis() - _resetPendingSince > TPUART_RESET_PENDING_TIMEOUT) _resetPending = false;
+
         handleReset();
         unsigned long start;
 
@@ -532,15 +541,23 @@ namespace TPUart
         // overran that task's stack (reproduced, core dump in printMessage).
         setBCUState(BCU_CONNECTED);
 
-        // Deferred half of upstream 18d8655: the transceiver reset invalidated
-        // whatever we had in flight, so drop it before the next frame is picked.
-        // Main-loop context, so this is safe against processQueue(). Under rxLock,
-        // in the order reset() takes the two: the receive task matches echoes
+        // The answer to our own reset(): that already took what was in flight and
+        // queued, and held the queue since, so what waits now came in while the
+        // transceiver restarted and goes out once it is configured.
+        // A reset the transceiver did on its own (deferred half of upstream 18d8655)
+        // invalidated whatever we had in flight, so drop it before the next frame is
+        // picked. Main-loop context, so this is safe against processQueue(). Under
+        // rxLock, in the order reset() takes the two: the receive task matches echoes
         // against the frame in flight while it holds rxLock, and Transmitter::reset()
-        // frees that frame before it leaves TX_AWAIT.
-        rxLock(true);
-        _transmitter.reset();
-        rxUnlock();
+        // takes that frame away before it leaves TX_AWAIT.
+        const bool ownReset = _resetPending;
+        _resetPending = false;
+        if (!ownReset)
+        {
+            rxLock(true);
+            _transmitter.reset();
+            rxUnlock();
+        }
 
         applyConfiguration();
         requestState();

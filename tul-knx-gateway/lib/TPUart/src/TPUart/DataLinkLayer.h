@@ -62,6 +62,13 @@
 #define TPUART_DESYNC_COOLDOWN_MS 60000
 #endif
 
+// Longest wait for the U_Reset.ind that answers our own U_Reset.req; meanwhile
+// no frame is armed (_resetPending). The transceiver answers within
+// milliseconds; if it never does, the link goes on as without the hold.
+#ifndef TPUART_RESET_PENDING_TIMEOUT
+#define TPUART_RESET_PENDING_TIMEOUT 1000
+#endif
+
 // Max KNX TP frame length (extended frame). RX reassembly bounds the per-frame
 // stack buffer against this so a corrupt/desynced length prefix cannot size a
 // huge VLA (stack smash). 263 = 9-byte L_Data_Extended header + 254-byte APDU.
@@ -106,6 +113,11 @@ namespace TPUart
         unsigned long _dropTestLast = 0;
 #endif
         volatile bool _uReset = false;
+        // Our own U_Reset.req is out and its U_Reset.ind not in yet: the transceiver is
+        // restarting, so processQueue() arms nothing, and handleReset() keeps what was
+        // queued meanwhile. Main loop only.
+        bool _resetPending = false;
+        unsigned long _resetPendingSince = 0;
         volatile char _uState = 0;
         volatile bool _modeAutoAcknowlage = false;
         volatile bool _modeExtendedCRC = false;
