@@ -219,7 +219,10 @@ TPAckType Bau091A::isAckRequired(uint16_t address, bool isGrpAddr)
         else if((lcconfig & LCCONFIG::PHYS_IACK) == LCCONFIG::PHYS_IACK_NACK)
             ack = TPAckType::AckReqNack;
         else
-            if(_netLayer.isRoutedIndividualAddress(address, 1) || address == _deviceObj.individualAddress()) // Also ACK for our own individual address
+            // A routed address is acknowledged only while the device routes: without a
+            // programmed individual address KNXnet/IP routing is off (routingActive), the
+            // frame goes nowhere, and the acknowledge would tell the sender it arrived.
+            if((_netLayer.isRoutedIndividualAddress(address, 1) && _dlLayerPrimary.routingActive()) || address == _deviceObj.individualAddress()) // Also ACK for our own individual address
                 ack = TPAckType::AckReqAck;
             else
                 ack = TPAckType::AckReqNone;
