@@ -111,6 +111,15 @@ namespace TPUart
 #endif
 #ifdef TPUART_DROP_TEST_MS
         unsigned long _dropTestLast = 0;
+        // Around our own resets: when the U_Reset.req went out (0 = answered), frames
+        // armed before the answer, frames the answer threw away a second time, and the
+        // last round trip.
+        unsigned long _dropTestOwnResetAt = 0;
+        unsigned int _dropTestResets = 0;
+        unsigned int _dropTestArmedWhilePending = 0;
+        unsigned int _dropTestSecondRound = 0;
+        unsigned long _dropTestResetMs = 0;
+        void dropTestReset();
 #endif
         volatile bool _uReset = false;
         // Our own U_Reset.req is out and its U_Reset.ind not in yet: the transceiver is
@@ -288,6 +297,12 @@ namespace TPUart
         unsigned int desyncResets() const { return _desyncResets; }
         // Frames a reset threw away before their confirmation, since boot.
         unsigned int txDropped() const { return _txDropped; }
+#ifdef TPUART_DROP_TEST_MS
+        unsigned int dropTestResets() const { return _dropTestResets; }
+        unsigned int dropTestArmedWhilePending() const { return _dropTestArmedWhilePending; }
+        unsigned int dropTestSecondRound() const { return _dropTestSecondRound; }
+        unsigned long dropTestResetMs() const { return _dropTestResetMs; }
+#endif
         // Whether the transceiver acknowledges by itself: the aa bit of its last
         // U_Configure.ind (NCN5130 DS p.38). Stays false while _chipAutoAck does.
         bool isAutoAcknowledge() const { return _modeAutoAcknowlage; }

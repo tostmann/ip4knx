@@ -86,6 +86,9 @@ namespace TPUart
 
         _frame = _queue.front();
         _queue.pop();
+#ifdef TPUART_DROP_TEST_MS
+        if (_dll._dropTestOwnResetAt) _dll._dropTestArmedWhilePending++;
+#endif
         _dll._statistics.incrementTxFrames();
         _dll._statistics.incrementTxFrameBytes(_frame->size());
 

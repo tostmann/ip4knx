@@ -117,6 +117,10 @@ namespace TPUart
         // U_SetAddress.req).
         _resetPending = true;
         _resetPendingSince = millis();
+#ifdef TPUART_DROP_TEST_MS
+        _dropTestOwnResetAt = millis() | 1;
+        _dropTestResets++;
+#endif
         _modeExtendedCRC = false;
         _lastDiscardedBytes = 0;
         _receiver._invalid = false;
@@ -447,6 +451,9 @@ namespace TPUart
             if (millis() - start > 20) break;
         }
 
+#if defined(TPUART_DROP_TEST_MS) && defined(TPUART_DROP_TEST_EARLY)
+        dropTestReset(); // with frames received in this pass still in the ring
+#endif
         processRxFrameBuffer();
 
         // Show state changes and errors
@@ -469,17 +476,8 @@ namespace TPUart
             setBCUState(BCU_DISCONNECTED);
         }
 
-#ifdef TPUART_DROP_TEST_MS
-        // Bench only, never in a delivered build: a reset while frames wait to be
-        // sent, from the same place the watchdogs reset the link, so what becomes of
-        // the waiting frames' confirmations can be counted.
-        if (_bcuState == BCU_CONNECTED && _transmitter.queueSize() >= 3 &&
-            millis() - _dropTestLast >= TPUART_DROP_TEST_MS)
-        {
-            _dropTestLast = millis();
-            printMessage("Bench: reset with %u frames queued", (unsigned)_transmitter.queueSize());
-            reset();
-        }
+#if defined(TPUART_DROP_TEST_MS) && !defined(TPUART_DROP_TEST_EARLY)
+        dropTestReset();
 #endif
 
         processWatchdog();
@@ -540,6 +538,11 @@ namespace TPUart
 
         printMessage("Reset received");
         _uReset = false;
+#ifdef TPUART_DROP_TEST_MS
+        const bool dropTestOwn = _dropTestOwnResetAt != 0;
+        if (dropTestOwn) _dropTestResetMs = millis() - _dropTestOwnResetAt;
+        _dropTestOwnResetAt = 0;
+#endif
 
         // The link is up again. Set here and not in receivedReset(), which runs in
         // the receive task: leaving DISCONNECTED logs, and the 1 KB message buffer
@@ -567,6 +570,9 @@ namespace TPUart
         applyConfiguration();
         requestState();
 
+#ifdef TPUART_DROP_TEST_MS
+        if (dropTestOwn) _dropTestSecondRound += _transmitter._dropped.size();
+#endif
         reportDroppedFrames();
     }
 
@@ -584,6 +590,24 @@ namespace TPUart
     {
         _callbackCheckAcknowledge = callback;
     }
+
+#ifdef TPUART_DROP_TEST_MS
+    /*
+     * Bench only, never in a delivered build: a reset while frames wait to be sent -
+     * from where the watchdogs reset the link, or with TPUART_DROP_TEST_EARLY before
+     * the receive ring is handed on - so what becomes of their confirmations can be
+     * counted.
+     */
+    void DataLinkLayer::dropTestReset()
+    {
+        if (_bcuState != BCU_CONNECTED || _transmitter.queueSize() < 3 ||
+            millis() - _dropTestLast < TPUART_DROP_TEST_MS)
+            return;
+        _dropTestLast = millis();
+        printMessage("Bench: reset with %u frames queued", (unsigned)_transmitter.queueSize());
+        reset();
+    }
+#endif
 
     void DataLinkLayer::registerDroppedFrame(std::function<void(Frame &)> callback)
     {

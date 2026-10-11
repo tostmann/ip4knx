@@ -1704,6 +1704,12 @@ void setup() {
             json += "\"rx_stack_free\":" + String(tp.rxTaskStackFree()) + ",";
             json += "\"desync_resets\":" + String(tp.desyncResets()) + ",";
             json += "\"tx_dropped\":" + String(tp.txDropped()) + ",";
+#ifdef TPUART_DROP_TEST_MS
+            json += "\"drop_test\":{\"resets\":" + String(tp.dropTestResets()) +
+                    ",\"armed_while_pending\":" + String(tp.dropTestArmedWhilePending()) +
+                    ",\"second_round\":" + String(tp.dropTestSecondRound()) +
+                    ",\"last_reset_ms\":" + String(tp.dropTestResetMs()) + "},";
+#endif
             // Whether the transceiver acknowledges by itself. It should not: it never
             // gets the address, so every acknowledge is the host's decision.
             json += "\"auto_ack\":" + String(tp.isAutoAcknowledge() ? "true" : "false") + ",";
