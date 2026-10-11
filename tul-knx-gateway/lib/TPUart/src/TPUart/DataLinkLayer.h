@@ -102,6 +102,9 @@ namespace TPUart
 #endif
         uint8_t _resetIndTestStep = TPUART_RESET_IND_TEST_FIRST_STEP;
 #endif
+#ifdef TPUART_DROP_TEST_MS
+        unsigned long _dropTestLast = 0;
+#endif
         volatile bool _uReset = false;
         volatile char _uState = 0;
         volatile bool _modeAutoAcknowlage = false;

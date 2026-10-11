@@ -455,6 +455,19 @@ namespace TPUart
             setBCUState(BCU_DISCONNECTED);
         }
 
+#ifdef TPUART_DROP_TEST_MS
+        // Bench only, never in a delivered build: a reset while frames wait to be
+        // sent, from the same place the watchdogs reset the link, so what becomes of
+        // the waiting frames' confirmations can be counted.
+        if (_bcuState == BCU_CONNECTED && _transmitter.queueSize() >= 3 &&
+            millis() - _dropTestLast >= TPUART_DROP_TEST_MS)
+        {
+            _dropTestLast = millis();
+            printMessage("Bench: reset with %u frames queued", (unsigned)_transmitter.queueSize());
+            reset();
+        }
+#endif
+
         processWatchdog();
     }
 
