@@ -1703,6 +1703,7 @@ void setup() {
             json += "\"acr0_dropped\":" + String(tp.internalRegisterDropped()) + ",";
             json += "\"rx_stack_free\":" + String(tp.rxTaskStackFree()) + ",";
             json += "\"desync_resets\":" + String(tp.desyncResets()) + ",";
+            json += "\"tx_dropped\":" + String(tp.txDropped()) + ",";
             // Whether the transceiver acknowledges by itself. It should not: it never
             // gets the address, so every acknowledge is the host's decision.
             json += "\"auto_ack\":" + String(tp.isAutoAcknowledge() ? "true" : "false") + ",";
@@ -1757,6 +1758,7 @@ void setup() {
             json += "\"acr0_dropped\":0,";
             json += "\"rx_stack_free\":0,";
             json += "\"desync_resets\":0,";
+            json += "\"tx_dropped\":0,";
             json += "\"auto_ack\":false,";
             json += "\"acr0\":" + acr0StatusJson(0) + "}";
         }
