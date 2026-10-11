@@ -20,6 +20,9 @@ namespace TPUart
 
       public:
         std::queue<Frame *> _queue;
+        // Frames a reset took away before their L_DATA_CON, in sending order, for
+        // DataLinkLayer::reportDroppedFrames() to confirm negatively (main loop).
+        std::queue<Frame *> _dropped;
         Transmitter(DataLinkLayer &dll);
         ~Transmitter();
 

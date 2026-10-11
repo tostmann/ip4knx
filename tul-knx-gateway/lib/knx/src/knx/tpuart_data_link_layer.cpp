@@ -116,6 +116,7 @@ void TpUartDataLinkLayer::initialize()
         _tpuart.registerReceivedFrame(std::bind(&TpUartDataLinkLayer::processRxFrame, this, std::placeholders::_1));
         _tpuart.registerMessage(std::bind(&TpUartDataLinkLayer::printMessage, this, std::placeholders::_1, std::placeholders::_2));
         _tpuart.registerCheckAcknowledge(std::bind(&TpUartDataLinkLayer::checkAcknowledge, this, std::placeholders::_1, std::placeholders::_2));
+        _tpuart.registerDroppedFrame(std::bind(&TpUartDataLinkLayer::droppedFrame, this, std::placeholders::_1));
 #ifdef NCN5120
         _tpuart.begin(TPUart::BcuType::BCU_NCN5120, _platform.interface());
 #else
@@ -267,6 +268,22 @@ void TpUartDataLinkLayer::processRxFrame(TPUart::Frame &tpFrame)
 #endif
 
     frameReceived(cemiFrame);
+    free(cemiData); // Frame::cemiData() returns a malloc()'d buffer -> must be free()'d, not delete'd
+}
+
+// A frame a transceiver reset threw away before its L_DATA_CON: confirm it
+// negatively, as sendFrame() does for a frame it cannot queue, rather than leave a
+// tunnel client or the local stack to wait out its own timeout. Main loop, no
+// TPUart lock held. (upstream OpenKNX/knx 7a6f545)
+void TpUartDataLinkLayer::droppedFrame(TPUart::Frame& tpFrame)
+{
+    uint8_t *cemiData = (uint8_t *)tpFrame.cemiData();
+    if (cemiData == nullptr) // allocation failed under heap pressure -> nothing to confirm with
+        return;
+
+    CemiFrame cemiFrame(cemiData, tpFrame.cemiSize());
+    cemiFrame.repetition(WasNotRepeated);
+    dataConReceived(cemiFrame, false);
     free(cemiData); // Frame::cemiData() returns a malloc()'d buffer -> must be free()'d, not delete'd
 }
 

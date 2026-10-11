@@ -37,6 +37,11 @@ namespace TPUart
     Transmitter::~Transmitter()
     {
         reset();
+        while (!_dropped.empty())
+        {
+            delete _dropped.front();
+            _dropped.pop();
+        }
     }
 
     /**
@@ -228,18 +233,25 @@ namespace TPUart
     void Transmitter::reset()
     {
         _dll.txLock(true);
-        while (!_queue.empty())
-        {
-            delete _queue.front();
-            _queue.pop();
-        }
-
+        // A frame in TX_TRANSMIT or TX_AWAIT never got its L_DATA_CON, nor did any
+        // still queued: keep them for DataLinkLayer::reportDroppedFrames(), which
+        // confirms them negatively once no lock is held, instead of leaving their
+        // sender to wait out its own timeout. A frame back in TX_IDLE was confirmed
+        // already and is not reported a second time. (upstream f1c1237)
         if (_frame != nullptr)
         {
-            delete _frame;
+            if (_state == TX_TRANSMIT || _state == TX_AWAIT)
+                _dropped.push(_frame);
+            else
+                delete _frame;
             _frame = nullptr;
             _transmitPos = 0;
             _transmitOffset = 0;
+        }
+        while (!_queue.empty())
+        {
+            _dropped.push(_queue.front());
+            _queue.pop();
         }
 
         _state = TX_IDLE;

@@ -170,6 +170,9 @@ namespace TPUart
 
         std::vector<std::function<void(Frame &)>> _callbacksReceivedFrame;
         std::function<AcknowledgeType(unsigned short, bool)> _callbackCheckAcknowledge;
+        std::function<void(Frame &)> _callbackDroppedFrame;
+        unsigned int _txDropped = 0;
+        void reportDroppedFrames();
         std::function<void(const char *, bool error)> _callbackMessage;
 
         void connected(bool connected);
@@ -211,6 +214,9 @@ namespace TPUart
         void registerMessage(std::function<void(const char *, bool)> callback);
         void registerReceivedFrame(std::function<void(Frame &)> callback);
         void registerCheckAcknowledge(std::function<AcknowledgeType(unsigned short, bool)> callback);
+        // Called, in the main loop and with no lock held, for each frame a reset threw
+        // away before its L_DATA_CON; the frame is freed after the call.
+        void registerDroppedFrame(std::function<void(Frame &)> callback);
 
         bool processReceviedByte();
         void processTransmitByte();
@@ -265,6 +271,8 @@ namespace TPUart
         unsigned int internalRegisterDropped() const { return _regReadDropped; }
         // Resets the desync watchdog made since boot; reset() does not clear it.
         unsigned int desyncResets() const { return _desyncResets; }
+        // Frames a reset threw away before their confirmation, since boot.
+        unsigned int txDropped() const { return _txDropped; }
         // Whether the transceiver acknowledges by itself: the aa bit of its last
         // U_Configure.ind (NCN5130 DS p.38). Stays false while _chipAutoAck does.
         bool isAutoAcknowledge() const { return _modeAutoAcknowlage; }

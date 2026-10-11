@@ -110,6 +110,8 @@ namespace TPUart
         _lastDiscardedBytes = 0;
         _receiver._invalid = false;
         rxUnlock();
+
+        reportDroppedFrames();
     }
 
     const char *DataLinkLayer::getBcuStateInfo()
@@ -529,6 +531,8 @@ namespace TPUart
 
         applyConfiguration();
         requestState();
+
+        reportDroppedFrames();
     }
 
     void DataLinkLayer::registerMessage(std::function<void(const char *, bool)> callback)
@@ -544,6 +548,28 @@ namespace TPUart
     void DataLinkLayer::registerCheckAcknowledge(std::function<AcknowledgeType(uint16_t, bool)> callback)
     {
         _callbackCheckAcknowledge = callback;
+    }
+
+    void DataLinkLayer::registerDroppedFrame(std::function<void(Frame &)> callback)
+    {
+        _callbackDroppedFrame = callback;
+    }
+
+    /*
+     * Hands each frame a reset took away before its L_DATA_CON to the dropped-frame
+     * callback and frees it. Main loop only, and no lock may be held: the callback
+     * calls up into the stack, which may queue the next frame right away.
+     */
+    void DataLinkLayer::reportDroppedFrames()
+    {
+        while (!_transmitter._dropped.empty())
+        {
+            Frame *frame = _transmitter._dropped.front();
+            _transmitter._dropped.pop();
+            _txDropped++;
+            if (_callbackDroppedFrame) _callbackDroppedFrame(*frame);
+            delete frame;
+        }
     }
 
     AcknowledgeType DataLinkLayer::checkAcknowledge(unsigned short destination, bool isGroupAddress)
