@@ -633,7 +633,7 @@ namespace TPUart
 
         // Set Address for AutoACK Unicast
         {
-            if (_ownAddress > 0)
+            if (_ownAddress != 0 && _chipAutoAck)
             {
                 char buffer[10];
                 sprintf(buffer, "%u.%u.%u", (_ownAddress >> 12 & 0b1111), (_ownAddress >> 8 & 0b1111), (_ownAddress & 0b11111111));
@@ -1074,9 +1074,9 @@ namespace TPUart
 
     /*
      * Set the own address of the BCU.
-     * This is needed so that the BCU independently acknowledges frames when they are addressed to its own address.
+     * It reaches the transceiver only if _chipAutoAck allows it, which it does not (see there).
      */
-    void DataLinkLayer::setOwnAddress(short address)
+    void DataLinkLayer::setOwnAddress(uint16_t address)
     {
         _ownAddress = address;
         applyConfiguration(); // apply new address, if datalinklayer is already initialized

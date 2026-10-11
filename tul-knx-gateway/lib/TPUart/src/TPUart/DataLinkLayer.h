@@ -79,7 +79,15 @@ namespace TPUart
       private:
         bool _initialized = false;
         char _repetitions = 0b00110011; // 0-3 Nack (Default 3) // 5-7 Busy (Default 3)
-        short _ownAddress = 0;
+        // Unsigned (upstream 47d2a8f): as a short, an address at or above 8.0.0
+        // (0x8000), 15.15.0 included, read as negative.
+        uint16_t _ownAddress = 0;
+        // The transceiver never gets the address (no U_SetAddress.req), so every
+        // acknowledge is the host's decision in checkAcknowledge(), the own address
+        // included. With its auto-acknowledge on, the NCN5130 answers every
+        // group-addressed frame with IACK, whatever the coupler filter says (DS p.35,
+        // seen on the bus), and it keeps an address until it is reset.
+        static constexpr bool _chipAutoAck = false;
         // Desync watchdog (processWatchdog), main loop only: since when the receiver
         // has been seen out of step, and the resets that bounded it.
         unsigned long _invalidSince = 0;
@@ -257,6 +265,9 @@ namespace TPUart
         unsigned int internalRegisterDropped() const { return _regReadDropped; }
         // Resets the desync watchdog made since boot; reset() does not clear it.
         unsigned int desyncResets() const { return _desyncResets; }
+        // Whether the transceiver acknowledges by itself: the aa bit of its last
+        // U_Configure.ind (NCN5130 DS p.38). Stays false while _chipAutoAck does.
+        bool isAutoAcknowledge() const { return _modeAutoAcknowlage; }
 #ifdef TPUART_CON_DIAG
         const Receiver &conDiag() const { return _receiver; }
 #endif
@@ -278,7 +289,7 @@ namespace TPUart
 
         bool stopMode(bool state);
         bool busyMode(bool state);
-        void setOwnAddress(short address);
+        void setOwnAddress(uint16_t address);
         bool startMonitoring();
         BcuState getBcuState();
         const char *getBcuStateInfo();
