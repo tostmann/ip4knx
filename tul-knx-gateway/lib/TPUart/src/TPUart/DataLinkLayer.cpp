@@ -85,6 +85,11 @@ namespace TPUart
         if (_bcuState == BCU_UNINITIALIZED) return;
         printMessage("Reset BCU");
 
+        // Hand on what was received completely before the ring is cleared below: it
+        // can hold the L_DATA_CON of a frame confirmed a moment ago, which the
+        // transmitter no longer keeps, so clearing it would lose that confirmation.
+        processRxFrameBuffer();
+
         rxLock(true);
         _transmitter.reset();
         _uState = 0;
