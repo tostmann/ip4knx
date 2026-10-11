@@ -29,10 +29,8 @@ namespace TPUart
     /**
      * @brief Destructor for the Transmitter class.
      *
-     * This destructor is responsible for cleaning up the resources
-     * allocated by the Transmitter instance. Specifically, it checks
-     * if the _frame pointer is not null and deletes the allocated memory
-     * to prevent memory leaks.
+     * Frees every frame the transmitter still holds: reset() moves the unconfirmed
+     * ones to _dropped, and with nobody left to confirm them they are deleted here.
      */
     Transmitter::~Transmitter()
     {
@@ -224,11 +222,9 @@ namespace TPUart
     /**
      * @brief Resets the Transmitter by clearing the message queue and resetting the state.
      *
-     * This function performs the following actions:
-     * - Empties the message queue and deletes each message.
-     * - Resets the _awaitResponse flag to false.
-     * - Ensures memory barriers are respected using inline assembly.
-     * - Deletes the current frame if it exists.
+     * Unconfirmed frames - the one in flight and all queued - move to _dropped for
+     * DataLinkLayer::reportDroppedFrames(); an already confirmed current frame is
+     * deleted. The state returns to TX_IDLE.
      */
     void Transmitter::reset()
     {
