@@ -123,6 +123,13 @@ $ESPTOOL_CMD --chip $CHIP merge-bin \
     -o "$BINARIES_DIR/factory_${TARGET}.bin" \
     "${IMAGES[@]}"
 
+# esp-web-tools 10.4.0 aborts at 99 % when the compressed image ends in a
+# 1-byte block (see webflash_last_block.py) — pad such an image with 0xFF.
+# Web-flasher images only; the TULX32 image goes over the debug adapter.
+if [ "$TARGET" != "tulx32_esp32c6" ]; then
+    python3 "$SCRIPT_DIR/webflash_last_block.py" --fix "$BINARIES_DIR/factory_${TARGET}.bin"
+fi
+
 # Verify output
 if [ -f "$BINARIES_DIR/factory_${TARGET}.bin" ]; then
     SIZE=$(stat -c%s "$BINARIES_DIR/factory_${TARGET}.bin" 2>/dev/null || stat -f%z "$BINARIES_DIR/factory_${TARGET}.bin" 2>/dev/null)

@@ -14,6 +14,7 @@ This directory contains test and diagnostic scripts for the ip4knx KNX/IP Gatewa
 | `monitor_ip.py` | Serial port IP traffic monitor |
 | `build_factory.sh` | Build factory binary for ESP WebFlashTools |
 | `deploy_webflasher.sh` | Stage and rsync the install.busware.de/ip4knx/ web flasher site |
+| `webflash_last_block.py` | Check/pad a factory image so esp-web-tools 10.4.0 does not abort on a 1-byte final block |
 
 ---
 

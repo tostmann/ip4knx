@@ -61,6 +61,15 @@ if [ $missing -ne 0 ]; then
     exit 1
 fi
 
+# A factory image whose compressed form ends in a 1-byte block makes
+# esp-web-tools 10.4.0 abort at 99 % and leaves the stick unbootable.
+if ! python3 "$SCRIPT_DIR/webflash_last_block.py" \
+        "$BINARIES_DIR/factory_tul_esp32c3.bin" "$BINARIES_DIR/factory_tul32_esp32c6.bin"; then
+    echo ""
+    echo "Fix: python3 scripts/webflash_last_block.py --fix binaries/factory_<target>.bin"
+    exit 1
+fi
+
 # --- Version + MD5 --------------------------------------------------------
 VER_MAJOR_MINOR="$(cat "$PROJECT_DIR/tul-knx-gateway/version.txt" | tr -d '[:space:]')"
 VER_BUILD="$(cat "$PROJECT_DIR/tul-knx-gateway/build_number.txt" | tr -d '[:space:]')"
