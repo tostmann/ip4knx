@@ -43,6 +43,11 @@ namespace TPUart
       public:
         volatile bool _invalid = false;
         bool test = false;
+        // L_DATA_CONs the control-byte decoder took because no echo was waiting for
+        // them (each one a confirmation that left the echo path), and of those, the
+        // ones that came while no frame was in flight. Since boot, for the status page.
+        volatile uint32_t _orphanCons = 0;
+        volatile uint32_t _orphanConsIdle = 0;
         Receiver(DataLinkLayer &dll);
 
         void process();

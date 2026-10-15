@@ -95,7 +95,8 @@ namespace TPUart
         _uState = 0;
         _uReset = false;
         _receiver.reset();
-        _statistics.reset();
+        // _statistics is kept: the status page reports its counters since boot, and
+        // they would otherwise drop to zero at every transceiver reset.
         _rxFrameBuffer.clear();
         _rxFrameBufferEntries = 0;
         _repetitionFilter.clear();

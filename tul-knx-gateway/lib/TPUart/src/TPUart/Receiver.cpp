@@ -465,6 +465,8 @@ namespace TPUart
                 _diagSnapCount++;
             }
 #endif
+            _orphanCons = _orphanCons + 1;
+            if (!_dll.getTransmitter().awaitResponse()) _orphanConsIdle = _orphanConsIdle + 1;
             _dll.getTransmitter().finalize();
         }
 

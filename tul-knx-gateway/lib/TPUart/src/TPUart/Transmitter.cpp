@@ -119,6 +119,7 @@ namespace TPUart
         if (millis() - time < 60000) return;
 
         _dll.printError("Watchdog: Transmitter did not get confirm.");
+        _watchdogResets++;
         _dll.reset();
     }
 
@@ -196,6 +197,7 @@ namespace TPUart
         if (_queue.size() >= _maxQueueSize) return false;
 
         _queue.push(frame);
+        if (_queue.size() > _queuePeak) _queuePeak = _queue.size();
         return true;
     }
 
@@ -278,7 +280,11 @@ namespace TPUart
         }
         else
         {
+            if (_cachedAcknowledge) _ackParkReplaced = _ackParkReplaced + 1;
+            _ackParkedAt = micros();
+            asm volatile("" ::: "memory"); // the time before the octet the main loop polls
             _cachedAcknowledge = U_ACK_REQ | acknowledge;
+            _ackParked = _ackParked + 1;
         }
     }
 
@@ -291,6 +297,11 @@ namespace TPUart
             _dll._interface->write(_cachedAcknowledge);
             _cachedAcknowledge = 0;
             _dll.txUnlock();
+
+            // A park the receive task replaced meanwhile is timed from the newer one.
+            const uint32_t age = micros() - _ackParkedAt;
+            if (age > _ackParkAgeMaxUs) _ackParkAgeMaxUs = age;
+            _ackParkWritten = _ackParkWritten + 1;
         }
     }
 

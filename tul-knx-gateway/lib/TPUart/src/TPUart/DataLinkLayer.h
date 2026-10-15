@@ -297,6 +297,15 @@ namespace TPUart
         unsigned int desyncResets() const { return _desyncResets; }
         // Frames a reset threw away before their confirmation, since boot.
         unsigned int txDropped() const { return _txDropped; }
+        // Measurement counters since boot (status page); see Transmitter and Receiver.
+        uint32_t ackParked() const { return _transmitter._ackParked; }
+        uint32_t ackParkReplaced() const { return _transmitter._ackParkReplaced; }
+        uint32_t ackParkWritten() const { return _transmitter._ackParkWritten; }
+        uint32_t ackParkAgeMaxUs() const { return _transmitter._ackParkAgeMaxUs; }
+        uint32_t txWatchdogResets() const { return _transmitter._watchdogResets; }
+        size_t txQueuePeak() const { return _transmitter._queuePeak; }
+        uint32_t orphanCons() const { return _receiver._orphanCons; }
+        uint32_t orphanConsIdle() const { return _receiver._orphanConsIdle; }
 #ifdef TPUART_DROP_TEST_MS
         unsigned int dropTestResets() const { return _dropTestResets; }
         unsigned int dropTestArmedWhilePending() const { return _dropTestArmedWhilePending; }

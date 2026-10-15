@@ -23,6 +23,17 @@ namespace TPUart
         // Frames a reset took away before their L_DATA_CON, in sending order, for
         // DataLinkLayer::reportDroppedFrames() to confirm negatively (main loop).
         std::queue<Frame *> _dropped;
+
+        // Counted for the status page since boot; reset() keeps them. An acknowledge
+        // is parked when the receive task finds txLock taken; it goes out after the
+        // next octet the main loop transmits.
+        volatile uint32_t _ackParked = 0;        // parks, by the receive task
+        volatile uint32_t _ackParkReplaced = 0;  // a park overwritten before its write
+        volatile uint32_t _ackParkWritten = 0;   // parks written, by the main loop
+        volatile uint32_t _ackParkAgeMaxUs = 0;  // longest park before its write
+        volatile unsigned long _ackParkedAt = 0; // micros() of the newest park
+        uint32_t _watchdogResets = 0;            // resets for a missing L_DATA_CON
+        size_t _queuePeak = 0;                   // most frames queued at once
         Transmitter(DataLinkLayer &dll);
         ~Transmitter();
 
