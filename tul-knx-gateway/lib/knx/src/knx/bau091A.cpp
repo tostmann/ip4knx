@@ -23,7 +23,7 @@ not PID_COUPLER_SERVICES_CONTROL.
 Bau091A::Bau091A(Platform& platform)
     : BauSystemBCoupler(platform),
       _routerObj(memory(), 0x200, 0x2000),  // the Filtertable of 0x091A IP Routers is fixed at 0x200 and 0x2000 long
-      _ipParameters(_deviceObj, platform),
+      _ipParameters(_deviceObj, platform, &_counters),
       _dlLayerPrimary(_deviceObj, _ipParameters, _netLayer.getPrimaryInterface(), _platform, *this, (DataLinkLayerCallbacks*) this),
       _dlLayerSecondary(_deviceObj, _netLayer.getSecondaryInterface(), platform, *this, (ITpUartCallBacks&) *this, (DataLinkLayerCallbacks*) this),
       DataLinkLayerCallbacks()
@@ -43,6 +43,8 @@ Bau091A::Bau091A(Platform& platform)
 
     _netLayer.getPrimaryInterface().dataLinkLayer(_dlLayerPrimary);
     _netLayer.getSecondaryInterface().dataLinkLayer(_dlLayerSecondary);
+    _dlLayerPrimary.counters(&_counters);
+    _dlLayerSecondary.counters(&_counters);
 
 #ifdef USE_CEMI_SERVER
     _cemiServerObject.setMediumTypeAsSupported(DptMedium::KNX_IP);

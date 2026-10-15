@@ -20,6 +20,8 @@ bool TpUartDataLinkLayer::sendFrame(CemiFrame &cemiFrame)
     uint8_t *tpData = (uint8_t *)malloc(cemiFrame.telegramLengthtTP());
     if (!tpData) // bail on alloc failure instead of null-deref in fillTelegramTP() under heap pressure
     {
+        if (_counters)
+            _counters->lostToKnx();
         dataConReceived(cemiFrame, false);
         return false;
     }
@@ -33,6 +35,8 @@ bool TpUartDataLinkLayer::sendFrame(CemiFrame &cemiFrame)
     {
         free(tpData);
         delete tpFrame; // no-op on nullptr; the queue never took ownership
+        if (_counters)
+            _counters->lostToKnx();
         dataConReceived(cemiFrame, false);
         return false;
     }
@@ -44,6 +48,8 @@ bool TpUartDataLinkLayer::sendFrame(CemiFrame &cemiFrame)
     {
         free(tpData);
         delete tpFrame; // not queued -> free (queue didn't take ownership)
+        if (_counters)
+            _counters->lostToKnx();
         dataConReceived(cemiFrame, false);
         return false;
     }
@@ -67,6 +73,8 @@ bool TpUartDataLinkLayer::sendFrame(CemiFrame &cemiFrame)
         }
         else
             queueFullSuppressed++;
+        if (_counters)
+            _counters->lostToKnx();
         dataConReceived(cemiFrame, false);
         return false;
     }
@@ -274,6 +282,9 @@ void TpUartDataLinkLayer::processRxFrame(TPUart::Frame &tpFrame)
             // attempt has the repeat flag cleared, and clients such as FHEM's KNXIO
             // drop a confirmation that does not read as the frame they sent.
             cemiFrame.repetition(WasNotRepeated);
+            // PID 75: acknowledged by the line, not the wider success above.
+            if (_counters && tpFrame.isAck())
+                _counters->sentToKnx();
             dataConReceived(cemiFrame, success);
         }
         free(cemiData); // Frame::cemiData() returns a malloc()'d buffer -> must be free()'d, not delete'd
@@ -298,6 +309,8 @@ void TpUartDataLinkLayer::processRxFrame(TPUart::Frame &tpFrame)
 // TPUart lock held. (upstream OpenKNX/knx 7a6f545)
 void TpUartDataLinkLayer::droppedFrame(TPUart::Frame& tpFrame)
 {
+    if (_counters)
+        _counters->lostToKnx();
     uint8_t *cemiData = (uint8_t *)tpFrame.cemiData();
     if (cemiData == nullptr) // allocation failed under heap pressure -> nothing to confirm with
         return;

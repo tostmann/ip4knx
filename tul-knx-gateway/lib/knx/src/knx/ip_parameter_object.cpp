@@ -10,8 +10,8 @@
 // 224.0.23.12
 #define DEFAULT_MULTICAST_ADDR ((uint32_t)0xE000170C)
 
-IpParameterObject::IpParameterObject(DeviceObject& deviceObject, Platform& platform): _deviceObject(deviceObject),
-    _platform(platform)
+IpParameterObject::IpParameterObject(DeviceObject& deviceObject, Platform& platform, const KnxIpCounters* counters): _deviceObject(deviceObject),
+    _platform(platform), _counters(counters)
 {
     Property* properties[] =
     {
@@ -133,10 +133,10 @@ IpParameterObject::IpParameterObject(DeviceObject& deviceObject, Platform& platf
         // Router only (upstream 8a8f2d1). Appended so the index of every existing property stays,
         // and read-only so neither enters the persisted image or InterfaceObject::layoutTag().
         // 03_08_03 2.5.21 p.14, "shall be implemented by devices providing KNXnet/IP Routing":
-        // 0x00 - none of the optional features is implemented here (no PID 72/73 queue overflow
-        // or PID 74/75 transmit counters, no priority/FIFO). Upstream reports bit 0, it counts
-        // queue overflows.
-        new DataProperty(PID_KNXNETIP_ROUTING_CAPABILITIES, false, PDT_UNSIGNED_CHAR, 1, ReadLv3 | WriteLv0, (uint8_t)0x00),
+        // bit 0 the queue overflow counts (PID 72/73), bit 1 the transmitted telegram counts
+        // (PID 74/75). No priority FIFO, no multiple installations, no address mapping.
+        // (upstream 0f4e301)
+        new DataProperty(PID_KNXNETIP_ROUTING_CAPABILITIES, false, PDT_UNSIGNED_CHAR, 1, ReadLv3 | WriteLv0, (uint8_t)0x03),
         // 03_08_03 2.5.28 p.16, mandatory for any KNXnet/IP or KNX IP device (built here for the router
         // only), default 100 ms (range 20-100). A parameter, not a claim: ROUTING_BUSY is never sent.
         new DataProperty(PID_ROUTING_BUSY_WAIT_TIME, false, PDT_UNSIGNED_INT, 1, ReadLv3 | WriteLv0, (uint16_t)100),
@@ -157,6 +157,60 @@ IpParameterObject::IpParameterObject(DeviceObject& deviceObject, Platform& platf
                 *data = io->_deviceState;
                 return 1;
             }),
+#if MASK_VERSION == 0x091A
+        // 03_08_03 2.5.23-2.5.26, "shall be implemented by devices providing KNXnet/IP
+        // Routing". Appended and read-only, as PID 69. PID 74 counts the
+        // ROUTING_INDICATIONs the IP stack took, PID 75 the telegrams acknowledged on
+        // TP, routed or not. (upstream ca47296, 81faee6)
+        new CallbackProperty<IpParameterObject>(this, PID_QUEUE_OVERFLOW_TO_IP, false, PDT_UNSIGNED_INT, 1, ReadLv3 | WriteLv0,
+            [](IpParameterObject* io, uint16_t start, uint8_t count, uint8_t* data) -> uint8_t
+            {
+                if (start == 0)
+                {
+                    uint16_t currentNoOfElements = 1;
+                    pushWord(currentNoOfElements, data);
+                    return 1;
+                }
+                pushWord(io->_counters ? io->_counters->overflowToIp() : 0, data);
+                return 1;
+            }),
+        new CallbackProperty<IpParameterObject>(this, PID_QUEUE_OVERFLOW_TO_KNX, false, PDT_UNSIGNED_INT, 1, ReadLv3 | WriteLv0,
+            [](IpParameterObject* io, uint16_t start, uint8_t count, uint8_t* data) -> uint8_t
+            {
+                if (start == 0)
+                {
+                    uint16_t currentNoOfElements = 1;
+                    pushWord(currentNoOfElements, data);
+                    return 1;
+                }
+                pushWord(io->_counters ? io->_counters->overflowToKnx() : 0, data);
+                return 1;
+            }),
+        new CallbackProperty<IpParameterObject>(this, PID_MSG_TRANSMIT_TO_IP, false, PDT_UNSIGNED_LONG, 1, ReadLv3 | WriteLv0,
+            [](IpParameterObject* io, uint16_t start, uint8_t count, uint8_t* data) -> uint8_t
+            {
+                if (start == 0)
+                {
+                    uint16_t currentNoOfElements = 1;
+                    pushWord(currentNoOfElements, data);
+                    return 1;
+                }
+                pushInt(io->_counters ? io->_counters->transmitToIp() : 0, data);
+                return 1;
+            }),
+        new CallbackProperty<IpParameterObject>(this, PID_MSG_TRANSMIT_TO_KNX, false, PDT_UNSIGNED_LONG, 1, ReadLv3 | WriteLv0,
+            [](IpParameterObject* io, uint16_t start, uint8_t count, uint8_t* data) -> uint8_t
+            {
+                if (start == 0)
+                {
+                    uint16_t currentNoOfElements = 1;
+                    pushWord(currentNoOfElements, data);
+                    return 1;
+                }
+                pushInt(io->_counters ? io->_counters->transmitToKnx() : 0, data);
+                return 1;
+            }),
+#endif
     };
     initializeProperties(sizeof(properties), properties);
 

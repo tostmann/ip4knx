@@ -5,13 +5,15 @@
 #include "interface_object.h"
 #include "device_object.h"
 #include "platform.h"
+#include "knx_ip_counters.h"
 
 #define KNXIP_MULTICAST_PORT 3671
 
 class IpParameterObject : public InterfaceObject
 {
   public:
-    IpParameterObject(DeviceObject& deviceObject, Platform& platform);
+    // counters: what PID 72 to 75 read, on the router; without them they read 0.
+    IpParameterObject(DeviceObject& deviceObject, Platform& platform, const KnxIpCounters* counters = nullptr);
 
 #ifdef KNX_TUNNELING
     // Tunnel addresses used while none were written through device management
@@ -39,6 +41,7 @@ class IpParameterObject : public InterfaceObject
   private:
     DeviceObject& _deviceObject;
     Platform& _platform;
+    const KnxIpCounters* _counters;
     uint8_t _deviceState = 0;
     uint32_t _knxFaultSince = 0;    // millis() the KNX side was first seen unusable, 0 = it is not
     uint32_t _ipFaultSince = 0;

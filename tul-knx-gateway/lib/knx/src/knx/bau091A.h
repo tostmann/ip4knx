@@ -23,6 +23,8 @@ class Bau091A : public BauSystemBCoupler, public ITpUartCallBacks, public DataLi
     TpUartDataLinkLayer* getSecondaryDataLinkLayer();
     // Whether the IP network can carry KNXnet/IP, for PID_KNXNETIP_DEVICE_STATE.
     void ipNetworkUp(bool up) { _ipNetworkUp = up; }
+    // What PID 72 to 75 read.
+    const KnxIpCounters& counters() const { return _counters; }
   protected:
     InterfaceObject* getInterfaceObject(uint8_t idx);
     InterfaceObject* getInterfaceObject(ObjectType objectType, uint16_t objectInstance);
@@ -32,6 +34,7 @@ class Bau091A : public BauSystemBCoupler, public ITpUartCallBacks, public DataLi
 
     void doMasterReset(EraseCode eraseCode, uint8_t channel) override;
   private:
+    KnxIpCounters _counters; // first: the parameter object and both data link layers keep its address
     RouterObject _routerObj;
     IpParameterObject _ipParameters;
     IpDataLinkLayer _dlLayerPrimary;

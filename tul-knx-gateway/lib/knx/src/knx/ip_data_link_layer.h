@@ -7,6 +7,7 @@
 #include <atomic>
 #include "data_link_layer.h"
 #include "ip_parameter_object.h"
+#include "knx_ip_counters.h"
 #include "knx_ip_tunnel_connection.h"
 #include "service_families.h"
 
@@ -59,7 +60,9 @@ class IpDataLinkLayer : public DataLinkLayer
     bool enabled() const;
     // Re-announce the joined group without leaving it (see Platform::refreshMultiCast).
     void refreshMultiCast();
-    void knxBusConnected(bool connected);  // Set KNX bus connection status
+    void knxBusConnected(bool connected);
+    // PID 72 to 75; counted only once set.
+    void counters(KnxIpCounters* counters) { _counters = counters; }  // Set KNX bus connection status
     bool routingActive();                  // KNXnet/IP routing only once an individual address is set
     DptMedium mediumType() const override;
 #ifdef KNX_TUNNELING
@@ -104,6 +107,8 @@ class IpDataLinkLayer : public DataLinkLayer
     uint8_t _routingBusyCount = 0;     // N
     uint32_t _routingBusyDecAt = 0;
     void loopRoutingQueue();
+    KnxIpCounters* _counters = nullptr;
+    uint32_t _rxDroppedSeen = 0;       // udpRxDropped() already counted in PID 73
     uint32_t _unhandledLoggedAt = 0;   // the unknown-service log line, at most one a second
     uint32_t _unhandledSuppressed = 0;
     bool sendFrame(CemiFrame& frame);

@@ -65,6 +65,8 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
     }
     if (!_enabled)
     {
+        if (_counters)
+            _counters->lostToIp();
         dataConReceived(frame, false);
         return false;
     }
@@ -80,6 +82,8 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
     if (data == nullptr)
     {
         _stats.routingQueueDrops++;
+        if (_counters)
+            _counters->lostToIp();
         dataConReceived(frame, false);
         return false;
     }
@@ -130,8 +134,16 @@ void IpDataLinkLayer::loopRoutingQueue()
         return;
 
     uint8_t* data = _routingQueue[_routingQueueFirst];
-    if (!sendBytes(data, _routingQueueLen[_routingQueueFirst]))
+    const bool sent = sendBytes(data, _routingQueueLen[_routingQueueFirst]);
+    if (!sent)
         _stats.routingTxFailed++;
+    if (_counters)
+    {
+        if (sent)
+            _counters->sentToIp();
+        else
+            _counters->lostToIp();
+    }
     free(data);
     _routingQueue[_routingQueueFirst] = nullptr;
     _routingQueueFirst = (_routingQueueFirst + 1) % RoutingQueueDepth;
@@ -698,6 +710,17 @@ void IpDataLinkLayer::loop()
     for (uint8_t n = 0; n < KNX_IP_RX_PER_LOOP; n++)
         if (!loopHandleDatagram())
             break;
+
+    // A datagram the receive buffer had no room for is lost on its way to the KNX
+    // side: 03_08_05 2.3.4 names exactly the step "from the network buffer to the
+    // queue". What it was is not known any more; each counts.
+    const uint32_t rxDropped = _platform.udpRxDropped();
+    if (rxDropped != _rxDroppedSeen)
+    {
+        if (_counters)
+            _counters->lostToKnx(rxDropped - _rxDroppedSeen);
+        _rxDroppedSeen = rxDropped;
+    }
 
     loopRoutingQueue();
 
@@ -1811,6 +1834,8 @@ void IpDataLinkLayer::enabled(bool value)
             _routingQueueFirst = (_routingQueueFirst + 1) % RoutingQueueDepth;
             _routingQueueCount--;
             _stats.routingQueueDrops++;
+            if (_counters)
+                _counters->lostToIp();
         }
         return;
     }

@@ -1697,6 +1697,12 @@ void setup() {
                     ",\"tx_peak_per_s\":" + String(st.routingPeakPerSecond) +
                     ",\"rx_lost_message\":" + String(st.routingRxLostMessage) +
                     ",\"rx_busy\":" + String(st.routingRxBusy) + "}";
+            // PID 72 to 75 of the KNXnet/IP parameter object.
+            const KnxIpCounters& pc = ((Bau091A&)knx.bau()).counters();
+            json += ",\"counters\":{\"overflow_to_ip\":" + String(pc.overflowToIp()) +
+                    ",\"overflow_to_knx\":" + String(pc.overflowToKnx()) +
+                    ",\"transmit_to_ip\":" + String(pc.transmitToIp()) +
+                    ",\"transmit_to_knx\":" + String(pc.transmitToKnx()) + "}";
             json += ",\"tunnel\":{\"requests\":" + String(st.tunnelRequests) +
                     ",\"acks\":" + String(st.tunnelAcks) +
                     ",\"config_requests\":" + String(st.configRequests) +

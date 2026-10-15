@@ -42,7 +42,7 @@ public:
 
     // KNXnet/IP datagrams dropped since boot because the receive buffer was
     // full or the datagram was longer than the stack reads.
-    uint32_t udpRxDropped() const { return _udpRxDropped; }
+    uint32_t udpRxDropped() const override { return _udpRxDropped; }
     // Most datagrams waiting in the receive buffer at once since boot.
     uint32_t udpRxBacklogPeak() const { return _udpRxBacklogPeak; }
     // Datagrams the IP stack refused to send since boot.

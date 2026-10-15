@@ -5,6 +5,7 @@
 
 #include "TPUart.h"
 #include "data_link_layer.h"
+#include "knx_ip_counters.h"
 #include "tp_frame.h"
 #include <stdint.h>
 #include <functional>
@@ -49,6 +50,8 @@ class TpUartDataLinkLayer : public DataLinkLayer
     bool isConnected();
     // The bus usable now, as TPUart::DataLinkLayer::busOperational() sees it.
     bool busOperational();
+    // PID 73 and 75 on the router; counted only once set.
+    void counters(KnxIpCounters* counters) { _counters = counters; }
     bool isMonitoring();
     bool isStopped();
     bool isBusy();
@@ -66,6 +69,7 @@ class TpUartDataLinkLayer : public DataLinkLayer
     }
 
   private:
+    KnxIpCounters* _counters = nullptr;
     TPUart::Interface::Abstract* _tpuartInterface = nullptr;
     TPUart::DataLinkLayer _tpuart;
     void initialize();
