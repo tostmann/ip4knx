@@ -316,8 +316,11 @@ void Esp32Platform::closeMultiCast()
 bool Esp32Platform::sendBytesMultiCast(uint8_t * buffer, uint16_t len)
 {
     //printHex("<- ",buffer, len);
-    udpSend(_multicastIP, _multicastPort, buffer, len);
-    return true;
+    // The real result: a refused send was reported as sent.
+    if (udpSend(_multicastIP, _multicastPort, buffer, len))
+        return true;
+    _udpTxFailed++;
+    return false;
 }
 
 int Esp32Platform::readBytesMultiCast(uint8_t * buffer, uint16_t maxLen, uint32_t& src_addr, uint16_t& src_port)
@@ -377,9 +380,10 @@ bool Esp32Platform::sendBytesUniCast(uint32_t addr, uint16_t port, uint8_t* buff
     if(!port)
         port = _remotePort;
 
-    if (!udpSend(ucastaddr, port, buffer, len))
-        println("sendBytesUniCast fail");
-    return true;
+    if (udpSend(ucastaddr, port, buffer, len))
+        return true;
+    _udpTxFailed++;
+    return false;
 }
 
 uint8_t * Esp32Platform::getEepromBuffer(uint32_t size)

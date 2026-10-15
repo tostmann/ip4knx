@@ -45,6 +45,8 @@ public:
     uint32_t udpRxDropped() const { return _udpRxDropped; }
     // Most datagrams waiting in the receive buffer at once since boot.
     uint32_t udpRxBacklogPeak() const { return _udpRxBacklogPeak; }
+    // Datagrams the IP stack refused to send since boot.
+    uint32_t udpTxFailed() const { return _udpTxFailed; }
 
     //memory
     uint8_t* getEepromBuffer(uint32_t size);
@@ -70,6 +72,7 @@ private:
     volatile uint32_t _udpRxQueued = 0;    // udpReceive()
     volatile uint32_t _udpRxTaken = 0;     // readBytesMultiCast(), closeMultiCast()
     volatile uint32_t _udpRxBacklogPeak = 0;
+    uint32_t _udpTxFailed = 0;
     uint32_t _udpRxDroppedReported = 0;
     uint32_t _udpRxReportedAt = 0;
     // int8_t _rxPin = -1;

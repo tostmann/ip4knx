@@ -1686,7 +1686,8 @@ void setup() {
         json += "\"loop\":{\"gap_max_ms\":" + String(loopGapMaxMs) +
                 ",\"gap_max_at_s\":" + String(loopGapMaxAt / 1000) +
                 ",\"gaps_over_1s\":" + String(loopGapsOver1s) + "},";
-        json += "\"knxip\":{\"rx_backlog_peak\":" + String(knx.platform().udpRxBacklogPeak());
+        json += "\"knxip\":{\"rx_backlog_peak\":" + String(knx.platform().udpRxBacklogPeak()) +
+                ",\"tx_failed\":" + String(knx.platform().udpTxFailed());
         if (dl) {
             const KnxIpStats& st = dl->stats();
             json += ",\"routing\":{\"tx\":" + String(st.routingTx) +
