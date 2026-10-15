@@ -131,10 +131,13 @@ void IpDataLinkLayer::dataRequestToChannelId(CemiFrame& frame, uint8_t channelId
 
 void IpDataLinkLayer::dataRequestToTunnel(CemiFrame& frame)
 {
+    // L_Data goes to tunnelling connections only: on a device management connection
+    // everything after the connect is DEVICE_CONFIGURATION_REQUEST/_ACK (03_08_03
+    // 2.3.2 p.7), and a frame there used up a sequence number its client never saw.
     if(frame.addressType() == AddressType::GroupAddress)
     {
         for(int i = 0; i < KNX_TUNNELING; i++)
-            if(tunnels[i].ChannelId != 0 && tunnels[i].IndividualAddress == frame.sourceAddress())
+            if(tunnels[i].ChannelId != 0 && !tunnels[i].IsConfig && tunnels[i].IndividualAddress == frame.sourceAddress())
                 sendFrameToTunnel(&tunnels[i], frame);
                 //TODO check if source is from tunnel
         return;
@@ -143,28 +146,13 @@ void IpDataLinkLayer::dataRequestToTunnel(CemiFrame& frame)
     KnxIpTunnelConnection *tun = nullptr;
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
-        if(tunnels[i].IndividualAddress == frame.sourceAddress())
+        if(tunnels[i].ChannelId == 0 || tunnels[i].IsConfig || tunnels[i].IndividualAddress == frame.sourceAddress())
             continue;
 
         if(tunnels[i].IndividualAddress == frame.destinationAddress())
         {
             tun = &tunnels[i];
             break;
-        }
-    }
-
-    if(tun == nullptr)
-    {
-        for(int i = 0; i < KNX_TUNNELING; i++)
-        {
-            if(tunnels[i].IsConfig)
-            {
-#ifdef KNX_LOG_TUNNELING
-                println("Found config Channel");
-#endif
-                tun = &tunnels[i];
-                break;
-            }
         }
     }
 
@@ -185,7 +173,7 @@ void IpDataLinkLayer::dataConfirmationToTunnel(CemiFrame& frame)
     if(frame.addressType() == AddressType::GroupAddress)
     {
         for(int i = 0; i < KNX_TUNNELING; i++)
-            if(tunnels[i].ChannelId != 0 && tunnels[i].IndividualAddress == frame.sourceAddress())
+            if(tunnels[i].ChannelId != 0 && !tunnels[i].IsConfig && tunnels[i].IndividualAddress == frame.sourceAddress())
                 sendFrameToTunnel(&tunnels[i], frame);
                 //TODO check if source is from tunnel
         return;
@@ -197,28 +185,13 @@ void IpDataLinkLayer::dataConfirmationToTunnel(CemiFrame& frame)
     KnxIpTunnelConnection *tun = nullptr;
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
-        if(tunnels[i].ChannelId == 0)
+        if(tunnels[i].ChannelId == 0 || tunnels[i].IsConfig)
             continue;
 
         if(tunnels[i].IndividualAddress == frame.sourceAddress())
         {
             tun = &tunnels[i];
             break;
-        }
-    }
-
-    if(tun == nullptr)
-    {
-        for(int i = 0; i < KNX_TUNNELING; i++)
-        {
-            if(tunnels[i].IsConfig)
-            {
-#ifdef KNX_LOG_TUNNELING
-                println("Found config Channel");
-#endif
-                tun = &tunnels[i];
-                break;
-            }
         }
     }
 
@@ -239,7 +212,7 @@ void IpDataLinkLayer::dataIndicationToTunnel(CemiFrame& frame)
     if(frame.addressType() == AddressType::GroupAddress)
     {
         for(int i = 0; i < KNX_TUNNELING; i++)
-            if(tunnels[i].ChannelId != 0 && tunnels[i].IndividualAddress != frame.sourceAddress())
+            if(tunnels[i].ChannelId != 0 && !tunnels[i].IsConfig && tunnels[i].IndividualAddress != frame.sourceAddress())
                 sendFrameToTunnel(&tunnels[i], frame);
         return;
     }
@@ -247,28 +220,13 @@ void IpDataLinkLayer::dataIndicationToTunnel(CemiFrame& frame)
     KnxIpTunnelConnection *tun = nullptr;
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
-        if(tunnels[i].ChannelId == 0 || tunnels[i].IndividualAddress == frame.sourceAddress())
+        if(tunnels[i].ChannelId == 0 || tunnels[i].IsConfig || tunnels[i].IndividualAddress == frame.sourceAddress())
             continue;
-            
+
         if(tunnels[i].IndividualAddress == frame.destinationAddress())
         {
             tun = &tunnels[i];
             break;
-        }
-    }
-
-    if(tun == nullptr)
-    {
-        for(int i = 0; i < KNX_TUNNELING; i++)
-        {
-            if(tunnels[i].IsConfig)
-            {
-#ifdef KNX_LOG_TUNNELING
-                println("Found config Channel");
-#endif
-                tun = &tunnels[i];
-                break;
-            }
         }
     }
 
