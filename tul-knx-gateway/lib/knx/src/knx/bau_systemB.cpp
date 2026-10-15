@@ -232,6 +232,13 @@ void BauSystemB::restartRequestIndication(Priority priority, HopCountType hopTyp
     _platform.restart();
 }
 
+void BauSystemB::basicRestartSoon()
+{
+    _basicRestartAt = millis();
+    if (_basicRestartAt == 0)
+        _basicRestartAt = 1;   // 0 means none pending
+}
+
 void BauSystemB::authorizeIndication(Priority priority, HopCountType hopType, uint16_t asap, const SecurityControl &secCtrl, uint32_t key)
 {
     applicationLayer().authorizeResponse(AckRequested, priority, hopType, asap, secCtrl, 0);

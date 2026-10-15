@@ -31,6 +31,19 @@ void BauSystemBCoupler::loop()
 {
     _transLayer.loop();
     _memory.loop();
+
+    // The basic restart M_Reset.req asked for, 200 ms on so its M_Reset.ind has left.
+    // Pending changes are saved first; with none, nothing is written, so a client
+    // repeating M_Reset.req does not wear the flash.
+    if (_basicRestartAt != 0 && millis() - _basicRestartAt >= 200)
+    {
+        println("Basic restart (M_Reset.req)");
+        if (_beforeRestart != 0)
+            _beforeRestart();
+        if (_memory.savePending())
+            _memory.writeMemory();
+        _platform.restart();
+    }
 #ifdef USE_DATASECURE
     _appLayer.loop();
 #endif

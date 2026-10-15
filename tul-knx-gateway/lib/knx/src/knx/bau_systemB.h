@@ -48,6 +48,10 @@ class BauSystemB : protected BusAccessUnit
     void functionPropertyStateCallback(FunctionPropertyCallback func);
     FunctionPropertyCallback functionPropertyStateCallback();
 
+    // A basic restart as M_Reset.req asks for it (03_06_03 4.1.7.5.1): the device
+    // restarts as on A_Restart, a moment later, so the M_Reset.ind gets out first.
+    void basicRestartSoon();
+
   protected:
     virtual ApplicationLayer& applicationLayer() = 0;
     virtual InterfaceObject* getInterfaceObject(uint8_t idx) = 0;
@@ -126,6 +130,7 @@ class BauSystemB : protected BusAccessUnit
     ApplicationProgramObject _appProgram;
     Platform& _platform;
     RestartState _restartState = Idle;
+    uint32_t _basicRestartAt = 0;   // millis() of basicRestartSoon(), 0 = none pending
     SecurityControl _restartSecurity;
     uint32_t _restartDelay = 0;
     BeforeRestartCallback _beforeRestart = 0;

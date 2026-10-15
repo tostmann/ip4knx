@@ -44,6 +44,8 @@ class Memory
     void writeMemory();
     void saveMemory();
     void scheduleSave();
+    // A change waits for the timed save.
+    bool savePending() const { return _saveTimeout != 0; }
     void addSaveRestore(SaveRestore* obj);
     void addSaveRestore(TableObject* obj);
     void loop();

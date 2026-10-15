@@ -475,13 +475,22 @@ void CemiServer::handleMPropWrite(CemiFrame& frame, uint8_t channelId)
 
 void CemiServer::handleMReset(CemiFrame& frame, uint8_t channelId)
 {
-    println("M_Reset_req: sending M_Reset_ind");
-    // A real device reset does not work for USB or KNXNET/IP.
-    // Thus, M_Reset_ind is NOT mandatory for USB and KNXNET/IP.
-    // We just save all data to the EEPROM -- through the timed save, which keeps a
-    // minute between two flash writes. A direct writeMemory() here let every
-    // M_Reset_req from a device management connection rewrite the whole blob.
-    _bau.memory().scheduleSave();
+#if defined(KNX_TUNNELING) && !defined(USE_USB)
+    // A device management service (03_08_03 4.2.5): over a tunnelling connection it is
+    // not executed.
+    if (!_dataLinkLayerPrimary->isConfigChannel(channelId))
+    {
+        println("M_Reset_req on a tunnelling connection -> ignored");
+        return;
+    }
+#endif
+    println("M_Reset_req: sending M_Reset_ind, then a basic restart");
+    // 03_06_03 4.1.7.5.1: a basic restart "as on the reception of an A_Restart". It
+    // ends programming mode and every connection and applies changed parameters such
+    // as the routing multicast address (03_05_02 3.7.1.1.1, 03_08_03 2.5.1); until now
+    // the request only scheduled a save, which also left a download up to a minute
+    // away from the flash.
+    _bau.basicRestartSoon();
     // Prepare response
     uint8_t responseData[1];
     CemiFrame responseFrame(responseData, sizeof(responseData));
