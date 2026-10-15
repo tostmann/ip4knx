@@ -170,6 +170,47 @@ void IpDataLinkLayer::loopRoutingQueue()
 #endif
 }
 
+// 03_08_05 2.3.4: a telegram lost on its way to the KNX side is reported to the
+// routing group in a ROUTING_LOST_MESSAGE (Figure 7: device state, number of lost
+// messages). The first loss after a quiet second goes out at once, later ones are
+// summed into one report a second (08_TSSH 6.2.2 expects about a second between
+// them), and none goes within 5 ms of a ROUTING_INDICATION (03_02_06 2.1). Losses
+// while the device does not route are not reported, then or later; a report the IP
+// stack refused is tried again a second later. (upstream 81e04a9, 3aee7bd)
+void IpDataLinkLayer::loopLostMessage()
+{
+    if (_counters == nullptr)
+        return;
+    const uint32_t lost = _counters->lostToKnxTotal();
+    if (!routingActive())
+    {
+        _lostReported = lost;
+        return;
+    }
+    const uint32_t pending = lost - _lostReported; // exact across the wrap
+    if (pending == 0)
+        return;
+
+    const uint32_t now = millis();
+    if (_lostSent && now - _lostSentAt < 1000)
+        return;
+    if (_routingSentCount > 0 && now - _routingLastSentAt < 6)
+        return;
+
+    const uint16_t count = pending > 0xFFFF ? 0xFFFF : (uint16_t)pending;
+    uint8_t datagram[KNXIP_HEADER_LEN + 4] = {
+        KNXIP_HEADER_LEN, KNXIP_PROTOCOL_VERSION, (uint8_t)(RoutingLostMessage >> 8), (uint8_t)RoutingLostMessage,
+        0x00, KNXIP_HEADER_LEN + 4,
+        0x04, _ipParameters.deviceState(), (uint8_t)(count >> 8), (uint8_t)count};
+    _lostSentAt = now;
+    _lostSent = true;
+    if (sendBytes(datagram, sizeof(datagram)))
+    {
+        _lostReported += count;
+        _stats.routingTxLostMessage++;
+    }
+}
+
 #ifdef KNX_TUNNELING
 // Route a frame back to the exact tunnel that originated it (by channelId).
 // Used for CEMI configuration responses (M_PropRead_con / M_PropWrite_con /
@@ -723,6 +764,7 @@ void IpDataLinkLayer::loop()
     }
 
     loopRoutingQueue();
+    loopLostMessage();
 
 #ifdef KNX_TUNNELING
     loopTunnelTimers();

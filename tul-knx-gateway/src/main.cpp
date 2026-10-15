@@ -1696,6 +1696,7 @@ void setup() {
                     ",\"queue_peak\":" + String(st.routingQueuePeak) +
                     ",\"tx_peak_per_s\":" + String(st.routingPeakPerSecond) +
                     ",\"rx_lost_message\":" + String(st.routingRxLostMessage) +
+                    ",\"tx_lost_message\":" + String(st.routingTxLostMessage) +
                     ",\"rx_busy\":" + String(st.routingRxBusy) + "}";
             // PID 72 to 75 of the KNXnet/IP parameter object.
             const KnxIpCounters& pc = ((Bau091A&)knx.bau()).counters();

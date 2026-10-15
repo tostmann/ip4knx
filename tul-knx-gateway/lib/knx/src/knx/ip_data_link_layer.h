@@ -26,6 +26,7 @@ struct KnxIpStats
     uint32_t routingQueuePeak = 0;     // most waiting at once
     uint32_t routingPeakPerSecond = 0; // most sent within one second (calendar seconds)
     uint32_t routingRxLostMessage = 0; // ROUTING_LOST_MESSAGEs received
+    uint32_t routingTxLostMessage = 0; // ROUTING_LOST_MESSAGEs sent
     uint32_t routingRxBusy = 0;        // ROUTING_BUSYs received
     uint32_t tunnelRequests = 0;       // TUNNELLING_REQUESTs sent to clients
     uint32_t tunnelAcks = 0;           // TUNNELLING_ACKs received from them
@@ -109,6 +110,10 @@ class IpDataLinkLayer : public DataLinkLayer
     void loopRoutingQueue();
     KnxIpCounters* _counters = nullptr;
     uint32_t _rxDroppedSeen = 0;       // udpRxDropped() already counted in PID 73
+    uint32_t _lostReported = 0;        // KnxIpCounters::lostToKnxTotal() already reported
+    uint32_t _lostSentAt = 0;
+    bool _lostSent = false;
+    void loopLostMessage();
     uint32_t _unhandledLoggedAt = 0;   // the unknown-service log line, at most one a second
     uint32_t _unhandledSuppressed = 0;
     bool sendFrame(CemiFrame& frame);
