@@ -488,7 +488,9 @@ void RouterObject::functionRouteTableControl(bool isCommand, uint8_t* data, uint
 
 void RouterObject::functionRfEnableSbc(bool isCommand, uint8_t* data, uint8_t length, uint8_t* resultData, uint8_t& resultLength)
 {
-    if (isCommand)
+    // A command without its octet leaves the mode as it is: data[0] would lie past
+    // the APDU.
+    if (isCommand && length >= 1)
     {
         _rfSbcRoutingEnabled = (data[0] == 1) ? true : false;
     }
@@ -516,7 +518,9 @@ void RouterObject::functionIpEnableSbc(bool isCommand, uint8_t* data, uint8_t le
     printHex(" ", data, length);
 #endif
 
-    if (isCommand)
+    // A command without its octet leaves the mode as it is: data[0] would lie past
+    // the APDU.
+    if (isCommand && length >= 1)
     {
         _ipSbcRoutingEnabled = (data[0] == 1) ? true : false;
     }
