@@ -75,6 +75,15 @@
 #define TPUART_BUS_SILENT_PROBES 3
 #endif
 
+// How long after the decision a parked acknowledge may still be written, in us
+// (Transmitter::flushAcknowledge). 3698 us to the start of the acknowledge, less
+// two host characters at 19200 baud (2 x 573 us), less 120 us for the decision
+// itself; at 38400 baud the margin is larger. (upstream 9a54040)
+#ifndef TPUART_ACK_WINDOW_US
+#define TPUART_ACK_WINDOW_US 2432
+#endif
+static_assert(TPUART_ACK_WINDOW_US >= 64 && TPUART_ACK_WINDOW_US <= 2552, "TPUART_ACK_WINDOW_US must be in 64..2552");
+
 // Max KNX TP frame length (extended frame). RX reassembly bounds the per-frame
 // stack buffer against this so a corrupt/desynced length prefix cannot size a
 // huge VLA (stack smash). 263 = 9-byte L_Data_Extended header + 254-byte APDU.
@@ -310,6 +319,7 @@ namespace TPUart
         uint32_t ackParkReplaced() const { return _transmitter._ackParkReplaced; }
         uint32_t ackParkWritten() const { return _transmitter._ackParkWritten; }
         uint32_t ackParkAgeMaxUs() const { return _transmitter._ackParkAgeMaxUs; }
+        uint32_t ackParkDropped() const { return _transmitter._ackParkDropped; }
         uint32_t txWatchdogResets() const { return _transmitter._watchdogResets; }
         size_t txQueuePeak() const { return _transmitter._queuePeak; }
         uint32_t orphanCons() const { return _receiver._orphanCons; }

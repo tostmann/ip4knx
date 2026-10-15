@@ -14,11 +14,11 @@ namespace TPUart
      *
      * This constructor initializes the Transmitter object with the provided
      * DataLinkLayer reference. It also sets the initial values for
-     * _cachedAcknowledge, _awaitResponse, and _time to 0.
+     * _pendingAcknowledge, _awaitResponse, and _time to 0.
      */
     Transmitter::Transmitter(DataLinkLayer &dll) : _dll(dll)
     {
-        _cachedAcknowledge = 0;
+        _pendingAcknowledge = 0;
         _state = TX_IDLE;
         _transmitPos = 0;
         _transmitOffset = 0;
@@ -135,11 +135,17 @@ namespace TPUart
 
     void Transmitter::processTransmitByte()
     {
+        flushAcknowledge();
+
         if (_state != TX_TRANSMIT) return;
         // if (!_awaitResponse) return;
         if (!_dll.txLock()) return;
         // Double check
-        if (_state != TX_TRANSMIT) return;
+        if (_state != TX_TRANSMIT)
+        {
+            _dll.txUnlock(); // returning with it held stopped every acknowledge and transmission for good
+            return;
+        }
 
         const unsigned short size = _frame->size();
         // if (_transmitPos >= size)
@@ -179,7 +185,7 @@ namespace TPUart
         _transmitPos++;
         _dll.txUnlock();
 
-        sendCachedAcknowledge();
+        flushAcknowledge();
     }
 
     /**
@@ -262,12 +268,12 @@ namespace TPUart
     }
 
     /**
-     * @brief Sends an acknowledge message.
+     * @brief Sends an acknowledge, or parks it when txLock is taken.
      *
-     * This function sends an acknowledge message of the specified type. If the
-     * transmitter lock is acquired successfully, the acknowledge message is sent
-     * immediately. Otherwise, the acknowledge message is cached for later
-     * transmission.
+     * Runs in the receive task when a frame's destination is decoded. A parked
+     * acknowledge is written by flushAcknowledge() while its bus window lasts and
+     * dropped after it: before, it waited for the next transmitted octet and could
+     * be applied to whatever frame the chip received then. (upstream 61b09e5)
      *
      * @param acknowledge The type of acknowledge message to send.
      */
@@ -280,27 +286,48 @@ namespace TPUart
         }
         else
         {
-            if (_cachedAcknowledge) _ackParkReplaced = _ackParkReplaced + 1;
-            _ackParkedAt = micros();
-            asm volatile("" ::: "memory"); // the time before the octet the main loop polls
-            _cachedAcknowledge = U_ACK_REQ | acknowledge;
+            if (_pendingAcknowledge & 0xFF) _ackParkReplaced = _ackParkReplaced + 1;
+            _pendingAcknowledge = (((uint32_t)(micros() >> 6) & 0x00FFFFFFu) << 8) | (uint8_t)(U_ACK_REQ | acknowledge);
             _ackParked = _ackParked + 1;
         }
     }
 
-    void Transmitter::sendCachedAcknowledge()
+    /*
+     * Writes a parked acknowledge, or drops it once its bus window has passed. The
+     * acknowledge starts 15 bit times after the frame; for the shortest standard
+     * frame that leaves 41 bit times at 9600 baud after the decision at octet 6,
+     * 3698 us less the character that brought it (03_02_02 2.2.7). The NCN data
+     * sheet gives no deadline of its own for U_Ackn.req. Called from the main loop:
+     * every process() pass, before and after each transmitted octet, after a state
+     * probe. (upstream 61b09e5, 9a54040)
+     */
+    void Transmitter::flushAcknowledge()
     {
-        if (!_cachedAcknowledge) return;
+        const uint32_t parked = _pendingAcknowledge; // one read: octet and time agree
+        const uint8_t pending = parked & 0xFF;
+        if (!pending) return;
+
+        // 24 bits of 64 us ticks cover 17 min, so a long stall cannot alias an old
+        // park back into the window; the subtraction survives the micros() wrap.
+        const uint32_t age = ((((uint32_t)(micros() >> 6)) & 0x00FFFFFFu) - (parked >> 8)) & 0x00FFFFFFu;
+        if (age >= (TPUART_ACK_WINDOW_US >> 6) || _dll.isMonitoring())
+        {
+            if (_pendingAcknowledge == parked)
+            {
+                _pendingAcknowledge = 0;
+                _ackParkDropped = _ackParkDropped + 1;
+            }
+            return;
+        }
 
         if (_dll.txLock())
         {
-            _dll._interface->write(_cachedAcknowledge);
-            _cachedAcknowledge = 0;
+            _dll._interface->write(pending);
+            if (_pendingAcknowledge == parked) _pendingAcknowledge = 0; // a newer park waits for the next call
             _dll.txUnlock();
 
-            // A park the receive task replaced meanwhile is timed from the newer one.
-            const uint32_t age = micros() - _ackParkedAt;
-            if (age > _ackParkAgeMaxUs) _ackParkAgeMaxUs = age;
+            const uint32_t ageUs = age << 6;
+            if (ageUs > _ackParkAgeMaxUs) _ackParkAgeMaxUs = ageUs;
             _ackParkWritten = _ackParkWritten + 1;
         }
     }

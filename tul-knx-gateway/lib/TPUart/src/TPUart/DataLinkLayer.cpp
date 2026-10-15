@@ -440,6 +440,8 @@ namespace TPUart
             processReceviedByte();
 
         _receiver.process();
+        // A parked acknowledge goes out on every pass, not only next to a frame.
+        _transmitter.flushAcknowledge();
         _transmitter.processQueue();
 
         start = millis();
@@ -695,6 +697,8 @@ namespace TPUart
         _interface->write(U_STATE_REQ);
         if (_bcuType == BCU_NCN5120) _interface->write(U_SYSTEM_STATE_REQ);
         txUnlock();
+        // An acknowledge parked while the probe held txLock still has its window.
+        _transmitter.flushAcknowledge();
     }
 
     /*

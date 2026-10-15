@@ -1785,6 +1785,7 @@ void setup() {
             json += "\"ack_park_replaced\":" + String(tp.ackParkReplaced()) + ",";
             json += "\"ack_park_written\":" + String(tp.ackParkWritten()) + ",";
             json += "\"ack_park_age_max_us\":" + String(tp.ackParkAgeMaxUs()) + ",";
+            json += "\"ack_park_dropped\":" + String(tp.ackParkDropped()) + ",";
             json += "\"tx_watchdog_resets\":" + String(tp.txWatchdogResets()) + ",";
             json += "\"tx_queue_peak\":" + String((unsigned)tp.txQueuePeak()) + ",";
             json += "\"orphan_cons\":" + String(tp.orphanCons()) + ",";
@@ -1851,7 +1852,7 @@ void setup() {
             json += "\"desync_resets\":0,";
             json += "\"tx_dropped\":0,";
             json += "\"ack_parked\":0,\"ack_park_replaced\":0,\"ack_park_written\":0,"
-                    "\"ack_park_age_max_us\":0,\"tx_watchdog_resets\":0,\"tx_queue_peak\":0,"
+                    "\"ack_park_age_max_us\":0,\"ack_park_dropped\":0,\"tx_watchdog_resets\":0,\"tx_queue_peak\":0,"
                     "\"orphan_cons\":0,\"orphan_cons_idle\":0,";
             json += "\"auto_ack\":false,";
             json += "\"acr0\":" + acr0StatusJson(0) + "}";
