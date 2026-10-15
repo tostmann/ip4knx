@@ -123,7 +123,7 @@ namespace TPUart
         _dropTestResets++;
 #endif
         _modeExtendedCRC = false;
-        _lastDiscardedBytes = 0;
+        // _lastDiscardedBytes is kept, as are _statistics and the discard log.
         _receiver._invalid = false;
         rxUnlock();
 
@@ -1137,26 +1137,29 @@ namespace TPUart
      */
     void DataLinkLayer::showDiscardedError()
     {
-        if (!_receiver._discardedBytes.size()) return;
+        if (!_receiver._discardedLogSize) return;
         if ((millis() - _lastDiscardedMessage) < 1000) return;
-        if (!(_receiver._invalid || millis() - _receiver._lastDiscarded > 100 || _receiver._discardedBytes.size() > 100)) return;
+        if (!(_receiver._invalid || millis() - _receiver._lastDiscarded > 100 || _receiver._discardedLogSize > 100)) return;
         if (!rxLock()) return;
 
         std::string buffer;
-        size_t size = _receiver._discardedBytes.size();
-        while (_receiver._discardedBytes.size())
+        const unsigned int size = _receiver._discardedLogSize;
+        for (unsigned int i = 0; i < size; i++)
         {
             char hexBuffer[4];
-            sprintf(hexBuffer, " %02X", _receiver._discardedBytes.pop());
+            snprintf(hexBuffer, sizeof hexBuffer, " %02X", (uint8_t)_receiver._discardedLog[i]);
             buffer += hexBuffer;
         }
-
-        printError(" %u Bytes are discarded! (%s )", size, buffer.c_str());
-
-        _lastDiscardedBytes = _statistics.getRxDiscardedBytes();
+        _receiver._discardedLogSize = 0;
+        // More counted since the last line than kept: the log was full. A counter
+        // reset since then shows no "+".
+        const unsigned int counted = _statistics.getRxDiscardedBytes();
+        const bool more = counted >= _lastDiscardedBytes && counted - _lastDiscardedBytes > size;
+        _lastDiscardedBytes = counted;
         _lastDiscardedMessage = millis();
+        rxUnlock(); // not held while printing: the receive task waits on it
 
-        rxUnlock();
+        printError(" %u%s Bytes are discarded! (%s )", size, more ? "+" : "", buffer.c_str());
     }
 
     /*

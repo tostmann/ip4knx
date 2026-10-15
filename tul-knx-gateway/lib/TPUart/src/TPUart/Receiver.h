@@ -1,10 +1,16 @@
 #pragma once
 #include "TPUart/Frame.h"
 #include "TPUart/RepetitionFilter.h"
-#include "TPUart/RingBuffer.h"
 #include "TPUart/SearchBuffer.h"
 #include "TPUart/Types.h"
 #include <Arduino.h>
+
+// Discarded octets kept for the hex line of DataLinkLayer::showDiscardedError();
+// later ones are only counted, and the line then shows "N+". (upstream b4addd8)
+#ifndef TPUART_DISCARD_LOG_SIZE
+#define TPUART_DISCARD_LOG_SIZE 256
+#endif
+static_assert(TPUART_DISCARD_LOG_SIZE > 0 && TPUART_DISCARD_LOG_SIZE <= 0xFFFF, "TPUART_DISCARD_LOG_SIZE must be in 1..65535");
 
 namespace TPUart
 {
@@ -19,7 +25,19 @@ namespace TPUart
 
         DataLinkLayer &_dll;
         SearchBuffer _searchBuffer;
-        RingBuffer _discardedBytes;
+        // The first octets discarded since the last dump, written by the receive task
+        // and read by showDiscardedError(), both under rxLock. It was a second ring of
+        // 6001 octets.
+        char _discardedLog[TPUART_DISCARD_LOG_SIZE];
+        volatile uint16_t _discardedLogSize = 0;
+        void logDiscarded(const char value)
+        {
+            if (_discardedLogSize < TPUART_DISCARD_LOG_SIZE)
+            {
+                _discardedLog[_discardedLogSize] = value;
+                _discardedLogSize = _discardedLogSize + 1;
+            }
+        }
         volatile unsigned long _lastDiscarded = 0;
 
         volatile RxState _state = RX_IDLE;

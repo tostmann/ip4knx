@@ -289,7 +289,7 @@ namespace TPUart
             //_dll.printError("IVB1: %02X  - H:%u I:%u P:%u T:%u A:%u", value, x, _invalid, _searchBuffer.position(), _searchBuffer.timeout(), (uint)_awaitBytes);
             _lastDiscarded = millis();
             asm volatile("" ::: "memory");
-            _discardedBytes.push(value);
+            logDiscarded(value);
             _searchBuffer.move(1);
             _dll._statistics.incrementRxDiscardedBytes();
 
@@ -512,7 +512,7 @@ namespace TPUart
             // Unexpected
             _lastDiscarded = millis();
             asm volatile("" ::: "memory");
-            _discardedBytes.push(value);
+            logDiscarded(value);
             _dll._statistics.incrementRxDiscardedBytes();
             // _dll.printMessage("IVB2: %02X", value);
             _invalid = true;
