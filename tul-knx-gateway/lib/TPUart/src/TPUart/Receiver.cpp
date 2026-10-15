@@ -33,11 +33,12 @@ namespace TPUart
     }
 
     /*
-     * Hier wird geprüft ob der SearchBuffer mit einem Timeout-Marker (Positionsangabe) hat.
-     * Gibt es einen solche Marker, wird geprüft, ob mehr Bytes erwartet werden als der Marker (Positionsangabe) erlaubt.
-     * Sollte das der Fall sein, wird das erste Zeichen verworfen und Marker um ein verschoben (processSearchBufferInvalid).
-     * Das wird solange wiederholt bis entweder der Marker nicht mehr vorhanden (0) ist oder die Anzahl der erwarteten Bytes kleiner ist als die Anzahl der Bytes im Buffer.
-     * Dadurch wird sicher gestellt, dass ein möglicherweise weiteres Frame im SearchBuffer nicht verloren geht.
+     * Acts on a pause that processTimeout() marked in the search buffer, if fewer
+     * octets came before it than are awaited. A frame waiting for the octet after it
+     * is completed without one, unless the octet that ended the pause is its
+     * L_DATA_CON or a state answer ahead of it. Otherwise the octets before the pause
+     * are a fragment: processSearchBufferInvalid() drops them from the front up to
+     * one that can start a frame, so a frame that follows is not lost.
      */
     void Receiver::processSearchBufferTimeout()
     {
@@ -72,19 +73,20 @@ namespace TPUart
     }
 
     /*
-     * Diese Funktion prüft ob im SearchBuffer Daten vorhanden sind aber keine neuen Daten im Empfangspuffer des Interaces.
-     * Wenn das der Fall ist, wird die aktuell Position im SearchBuffer markiert.
+     * Marks the current position in the search buffer as a pause when octets came
+     * since the last mark, the interface holds none, and none arrived for
+     * TPUART_RX_TIMEOUT. processSearchBufferTimeout() acts on the mark.
      */
     void Receiver::processTimeout()
     {
-        // Vorprüfung: Damit nicht unnötig ein lock geholt wird (Sortiert nach Rechenaufwand)
+        // Checked without the lock first, cheapest first, so it is taken only when needed.
         if (_searchBuffer.timeout() == _searchBuffer.position()) return;
         if (_dll._interface->available()) return;
         if (millis() - _lastReceivedTime < TPUART_RX_TIMEOUT) return;
 
         _dll.rxLock(true);
         size_t timeout = 0;
-        // Wiederholung der Vorprüfung
+        // The same checks again, under the lock.
         if (_searchBuffer.timeout() != _searchBuffer.position() && !_dll._interface->available() && millis() - _lastReceivedTime >= TPUART_RX_TIMEOUT)
         {
             timeout = _searchBuffer.position();
@@ -141,9 +143,11 @@ namespace TPUart
     }
 
     /*
-     * Wird bei jedem neuen Byte aufgerufen falls ein Frame noch auf ein Acknowledge wartet.
-     * Sollte ein L_DATA_CON oder L_ACKN_IND empfangen werden, wird das Frame als bestätigt markiert.
-     * Anschließend wird das Frame abgeschlossen und in den FrameBuffer geschrieben (auch wenn kein Ack gekommen ist).
+     * Called for each octet while a complete frame waits for the octet after it. A
+     * state answer between the echo of our frame and its L_DATA_CON (U_State.ind, or
+     * U_SystemStat.ind with its value) is taken, and the wait goes on. Any other
+     * octet completes the frame and writes it to the frame buffer: an L_DATA_CON or
+     * L_ACKN_IND as its confirmation or acknowledge, anything else without one.
      */
     void Receiver::processSearchBufferAcknowledge()
     {
@@ -229,7 +233,7 @@ namespace TPUart
         {
             unsigned short size = _searchBuffer.frame().size();
             if (!_dll.isMonitoring() && _dll._modeExtendedCRC) size += 2;
-            if (acknowledge) size++; // Es hängt noch ein ACKN oder DATA_CON dran
+            if (acknowledge) size++; // the ACKN or DATA_CON after the frame
             _dll.pushRxFrameBuffer(_searchBuffer.frame());
             _searchBuffer.frame().resetFlags();
 
@@ -241,7 +245,7 @@ namespace TPUart
             _awaitBytes = 1;
             _state = RX_IDLE;
 
-            // Wenn der buffer leer ist, kann auch das invalid flag zurückgesetzt werden
+            // With the buffer empty, the invalid flag can be cleared as well
             //_dll.printError("FV! %u %u %u", _dll._interface->available(), _searchBuffer.position(), _awaitBytes);
             if (!_dll._interface->available())
             {

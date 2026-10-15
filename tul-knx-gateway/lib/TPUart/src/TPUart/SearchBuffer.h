@@ -2,7 +2,7 @@
 #include "TPUart/Frame.h"
 
 #ifndef TPUART_RX_SEARCH_BUFFER_SIZE
-#define TPUART_RX_SEARCH_BUFFER_SIZE 300 // 263 + 37 reserv for frame errors errors and control bytes
+#define TPUART_RX_SEARCH_BUFFER_SIZE 300 // Frame::size() up to 9 + 255 = 264, + 2 CRC + 1 ACK/CON, the rest reserve
 #endif
 
 namespace TPUart

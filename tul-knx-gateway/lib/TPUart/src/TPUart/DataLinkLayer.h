@@ -96,7 +96,9 @@ namespace TPUart
 
       private:
         bool _initialized = false;
-        char _repetitions = 0b00110011; // 0-3 Nack (Default 3) // 5-7 Busy (Default 3)
+        // U_SetRepetition.req (NCN5130 DS p.36, Figure 37): 0bbb0nnn, the BUSY
+        // repetitions in bits 4-6, the NACK repetitions in bits 0-2, 3 each by default.
+        char _repetitions = 0b00110011;
         // Unsigned (upstream 47d2a8f): as a short, an address at or above 8.0.0
         // (0x8000), 15.15.0 included, read as negative.
         uint16_t _ownAddress = 0;

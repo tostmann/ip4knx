@@ -12,8 +12,8 @@ namespace TPUart
      * @param dll Reference to a DataLinkLayer object.
      *
      * This constructor initializes the Transmitter object with the provided
-     * DataLinkLayer reference. It also sets the initial values for
-     * _pendingAcknowledge, _awaitResponse, and _time to 0.
+     * DataLinkLayer reference. It also sets _pendingAcknowledge and _time to 0
+     * and the state to TX_IDLE.
      */
     Transmitter::Transmitter(DataLinkLayer &dll) : _dll(dll)
     {
@@ -42,11 +42,9 @@ namespace TPUart
     }
 
     /**
-     * @brief Finalizes the transmitter by setting the _awaitResponse flag to false.
+     * @brief Ends the wait for the L_DATA_CON: TX_AWAIT returns to TX_IDLE.
      *
-     * This function is used to indicate that the transmitter should no longer
-     * await a response. It is typically called when the transmission process
-     * is complete.
+     * Called by the receiver when an L_DATA_CON arrives.
      */
     void Transmitter::finalize()
     {

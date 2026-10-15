@@ -790,12 +790,11 @@ namespace TPUart
     }
 
     /*
-     * push a new frame to the transmit queue.
-     * if the transmit queue is full, the return is false.
-     *
-     * Important! The frame is not copied, only a pointer is stored.
-     * The frame will only delete wenn the frame is send.
-     * Is the queue full, the frame must be deleted by the caller.
+     * Pushes a frame to the transmit queue; the frame is not copied. False when it
+     * is not taken: no transceiver, bus monitor mode, longer than a TPUART2 sends, or
+     * the queue full. The caller deletes it then. A frame taken belongs to the
+     * transmitter, which deletes it once it is confirmed, or hands it to
+     * reportDroppedFrames() when a reset takes it away first.
      */
     bool DataLinkLayer::pushTransmitQueue(Frame *frame)
     {
