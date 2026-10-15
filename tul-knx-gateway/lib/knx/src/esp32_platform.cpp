@@ -176,6 +176,7 @@ esp_err_t Esp32Platform::udpOpen(void* ctx)
         return ESP_ERR_NO_MEM;
 
     ip_set_option(pcb, SOF_REUSEADDR);
+    udp_set_multicast_ttl(pcb, self->_multicastTtl);
     if (udp_bind(pcb, IP4_ADDR_ANY, self->_multicastPort) != ERR_OK)
     {
         udp_remove(pcb);

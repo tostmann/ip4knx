@@ -1695,6 +1695,14 @@ void IpDataLinkLayer::enabled(bool value)
             group = 0xE000170C;
         }
 
+        // PID_TTL (03_08_03 2.5.18, default 16) for the datagrams to the group. It was
+        // stored but never applied: lwIP sent with its default of 64. 0 would keep
+        // every datagram in the device, so it falls back to the default.
+        uint8_t ttl = _ipParameters.propertyValue<uint8_t>(PID_TTL);
+        if (ttl == 0)
+            ttl = 16;
+        _platform.multicastTtl(ttl);
+
         // enabled() must not claim an endpoint the join did not produce: a device
         // that keeps link and address but never joined answers no SEARCH_REQUEST,
         // while status page and LED report a healthy gateway.

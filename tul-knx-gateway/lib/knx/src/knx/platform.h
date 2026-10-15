@@ -55,6 +55,8 @@ class Platform
     // Returns whether the group was actually joined. A caller that treats a failed
     // join as success reports a working endpoint while answering nothing.
     virtual bool setupMultiCast(uint32_t addr, uint16_t port);
+    // TTL of the datagrams to the multicast group; applied by the next setupMultiCast().
+    virtual void multicastTtl(uint8_t ttl) {}
     // Re-announce the joined group without leaving it. A snooping switch or access
     // point ages its table out; where nobody sends IGMP queries, nothing refreshes
     // it and multicast to this device simply stops.
