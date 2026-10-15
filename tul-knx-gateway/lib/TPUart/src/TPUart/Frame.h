@@ -7,11 +7,6 @@
 #include <string>
 // #endif
 
-// DLL services (device is transparent)
-#define L_DATA_STANDARD_IND 0x90
-#define L_DATA_EXTENDED_IND 0x10
-#define L_DATA_MASK 0xD3
-
 // Means that the frame is transmitted
 #define TP_FRAME_FLAG_TX 0b10000000
 

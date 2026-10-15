@@ -733,8 +733,6 @@ namespace TPUart
         {
             if (_ownAddress != 0 && _chipAutoAck)
             {
-                char buffer[10];
-                sprintf(buffer, "%u.%u.%u", (_ownAddress >> 12 & 0b1111), (_ownAddress >> 8 & 0b1111), (_ownAddress & 0b11111111));
                 if (_bcuType == BCU_NCN5120) _interface->write(U_NCN5120_SET_ADDRESS_REQ);
                 if (_bcuType == BCU_TPUART2) _interface->write(U_TPUART2_SET_ADDRESS_REQ);
                 _interface->write((_ownAddress >> 8) & 0xFF);

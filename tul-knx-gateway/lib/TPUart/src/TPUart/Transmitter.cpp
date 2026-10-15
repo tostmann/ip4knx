@@ -5,7 +5,6 @@
 namespace TPUart
 {
     const size_t MAX_QUEUE_SIZE = 50;
-    const unsigned short MAX_WAIT_TIME = 60000;
 
     /**
      * @brief Constructs a new Transmitter object.

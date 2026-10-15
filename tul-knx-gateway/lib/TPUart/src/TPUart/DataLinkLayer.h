@@ -19,10 +19,6 @@
 #include "freertos/semphr.h"
 #endif
 
-#ifndef TPUART_MAX_PROCESS_TIME_PER_LOOP
-#define TPUART_MAX_PROCESS_TIME_PER_LOOP 30
-#endif
-
 #ifndef TPUART_MAX_RXQUEUE_TIME_PER_LOOP
 #define TPUART_MAX_RXQUEUE_TIME_PER_LOOP 20
 #endif
