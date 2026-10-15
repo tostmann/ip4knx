@@ -23,6 +23,10 @@ namespace TPUart
         volatile unsigned long _lastDiscarded = 0;
 
         volatile RxState _state = RX_IDLE;
+        // The first octet of a U_SystemStat.ind came while our frame awaited its
+        // confirmation; the next octet is its value. (processSearchBufferAcknowledge)
+        bool _sysStatValuePending = false;
+        bool isSystemStateAnswer(const char value) const;
         // volatile bool _uReset = false;
         // volatile char _uState = 0;
 

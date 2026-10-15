@@ -20,6 +20,13 @@ namespace TPUart
         return (value & U_STATE_MASK) == U_STATE_IND && (uint8_t)value != 0xFF;
     }
 
+    // U_SystemStat.ind, the first of the two octets the NCN answers the system state
+    // request with that processRequestState() sends along.
+    bool Receiver::isSystemStateAnswer(const char value) const
+    {
+        return value == U_SYSTEM_STAT_IND && _dll._bcuType == BCU_NCN5120;
+    }
+
     void Receiver::process()
     {
         processTimeout();
@@ -49,10 +56,11 @@ namespace TPUart
                 if (_searchBuffer.position() >= _awaitBytes)
                 {
                     const char value = _searchBuffer.get(_awaitBytes - 1);
-                    if ((value & L_DATA_CON_MASK) == L_DATA_CON ||
-                        (_searchBuffer.frame().isTransmitted() && isStateAnswer(value)))
+                    if (_sysStatValuePending || (value & L_DATA_CON_MASK) == L_DATA_CON ||
+                        (_searchBuffer.frame().isTransmitted() && (isStateAnswer(value) || isSystemStateAnswer(value))))
                         return;
                 }
+                _sysStatValuePending = false; // its value octet did not come
 #ifdef TPUART_CON_DIAG
                 _diagAcknTimeout++;
 #endif
@@ -142,6 +150,29 @@ namespace TPUart
         if (_state != RX_FRAME_WAIT_ACKN) return;
 
         const char value = _searchBuffer.get(_awaitBytes - 1);
+
+        // The value octet of a U_SystemStat.ind taken below. Checked first: it can look
+        // like anything, a confirmation as well.
+        if (_sysStatValuePending)
+        {
+            _sysStatValuePending = false;
+            _dll._systemState.update(value);
+            _searchBuffer.dropLast();
+            return;
+        }
+
+        // The state probe asks the NCN for its system state too, answered with two
+        // octets, U_SystemStat.ind and the value. Between the echo of our frame and its
+        // confirmation the first one closed the frame without it, and the confirmation
+        // went to processControlBytes(), which drops it: the tunnel client got no
+        // L_Data.con (orphan_cons in /api/status). Take both and keep waiting.
+        // (upstream e73afb8, that part only)
+        if (_searchBuffer.frame().isTransmitted() && isSystemStateAnswer(value))
+        {
+            _sysStatValuePending = true;
+            _searchBuffer.dropLast();
+            return;
+        }
 
         // A state request that reaches the transceiver while one of our frames is
         // on the bus is answered after the frame and before its confirmation:
@@ -394,6 +425,7 @@ namespace TPUart
         _state = RX_IDLE;
         _awaitBytes = 1;
         _invalid = false;
+        _sysStatValuePending = false;
     }
 
     unsigned short Receiver::getAwaitBytes()
