@@ -1691,7 +1691,9 @@ void setup() {
         if (dl) {
             const KnxIpStats& st = dl->stats();
             json += ",\"routing\":{\"tx\":" + String(st.routingTx) +
-                    ",\"tx_limit_drops\":" + String(st.routingLimitDrops) +
+                    ",\"tx_failed\":" + String(st.routingTxFailed) +
+                    ",\"queue_drops\":" + String(st.routingQueueDrops) +
+                    ",\"queue_peak\":" + String(st.routingQueuePeak) +
                     ",\"tx_peak_per_s\":" + String(st.routingPeakPerSecond) +
                     ",\"rx_lost_message\":" + String(st.routingRxLostMessage) +
                     ",\"rx_busy\":" + String(st.routingRxBusy) + "}";

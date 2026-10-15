@@ -63,22 +63,88 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
         dataConReceived(frame, true);
         return true;
     }
-
-    KnxIpRoutingIndication packet(frame);
-    // only send 50 packet per second: see KNX 3.2.6 p.6
-    if(isSendLimitReached())
+    if (!_enabled)
     {
-        // every other sendFrame path reports via dataConReceived(); the send-limit drop was the
-        // only branch returning false WITHOUT one -> emit the (negative) con to keep the contract
-        // uniform. Safe: a routed frame's foreign-source con is discarded at NetworkLayerCoupler,
-        // no re-queue/retransmit (isSendLimitReached is a pure sliding-window counter).
-        _stats.routingLimitDrops++;
         dataConReceived(frame, false);
         return false;
     }
-    bool success = sendBytes(packet.data(), packet.totalLength());
+
+    // Queued, not sent here: loopRoutingQueue() keeps the pace. Before, the 50 per
+    // second limit counted only within one 100 ms slot -- some 500 a second got
+    // through -- and nothing kept the 5 ms gap. (upstream 223aa85, 5ec09a6, e707496
+    // in part)
+    KnxIpRoutingIndication packet(frame);
+    uint8_t* data = nullptr;
+    if (_routingQueueCount < RoutingQueueDepth)
+        data = (uint8_t*)malloc(packet.totalLength());
+    if (data == nullptr)
+    {
+        _stats.routingQueueDrops++;
+        dataConReceived(frame, false);
+        return false;
+    }
+    memcpy(data, packet.data(), packet.totalLength());
+    const uint8_t idx = (_routingQueueFirst + _routingQueueCount) % RoutingQueueDepth;
+    _routingQueue[idx] = data;
+    _routingQueueLen[idx] = packet.totalLength();
+    _routingQueueCount++;
+    if (_routingQueueCount > _stats.routingQueuePeak)
+        _stats.routingQueuePeak = _routingQueueCount;
+    dataConReceived(frame, true);
+
+    loopRoutingQueue();
+    return true;
+}
+
+// Sends the oldest queued ROUTING_INDICATION once the pace allows it: none while a
+// ROUTING_BUSY pause runs, 5 ms after the previous one, and no more than 50 within
+// any second (03_02_06 2.1, 03_08_05 2.3.5).
+void IpDataLinkLayer::loopRoutingQueue()
+{
+    const uint32_t now = millis();
+
+    // N falls by one every 5 ms once N x 100 ms have passed since the last
+    // ROUTING_BUSY.
+    if (_routingBusyCount > 0 && now - _routingBusyLastAt >= (uint32_t)_routingBusyCount * 100 &&
+        now - _routingBusyDecAt >= 5)
+    {
+        _routingBusyCount--;
+        _routingBusyDecAt = now;
+    }
+
+    // Ended here also with nothing queued: a pause left standing for 25 days would
+    // read as running again once millis() has moved half its range on.
+    if (_routingBusy)
+    {
+        if ((int32_t)(now - _routingResumeAt) < 0)
+            return;
+        _routingBusy = false;
+    }
+    if (_routingQueueCount == 0)
+        return;
+    // One more millisecond each: two millis() values taken a difference d apart can
+    // be as little as d - 1 ms apart in time.
+    if (_routingSentCount > 0 && now - _routingLastSentAt < 6)
+        return;
+    if (_routingSentCount == 50 && now - _routingSentAt[_routingSentNext] < 1001)
+        return;
+
+    uint8_t* data = _routingQueue[_routingQueueFirst];
+    if (!sendBytes(data, _routingQueueLen[_routingQueueFirst]))
+        _stats.routingTxFailed++;
+    free(data);
+    _routingQueue[_routingQueueFirst] = nullptr;
+    _routingQueueFirst = (_routingQueueFirst + 1) % RoutingQueueDepth;
+    _routingQueueCount--;
+
+    _routingSentAt[_routingSentNext] = now;
+    _routingSentNext = (_routingSentNext + 1) % 50;
+    if (_routingSentCount < 50)
+        _routingSentCount++;
+    _routingLastSentAt = now;
+
     _stats.routingTx++;
-    const uint32_t second = millis() / 1000;
+    const uint32_t second = now / 1000;
     if (second != _routingSecond)
     {
         _routingSecond = second;
@@ -90,8 +156,6 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
     if(_dllcb)
         _dllcb->activity((_netIndex << KNX_ACTIVITYCALLBACK_NET) | (KNX_ACTIVITYCALLBACK_DIR_SEND << KNX_ACTIVITYCALLBACK_DIR));
 #endif
-    dataConReceived(frame, success);
-    return success;
 }
 
 #ifdef KNX_TUNNELING
@@ -635,6 +699,8 @@ void IpDataLinkLayer::loop()
         if (!loopHandleDatagram())
             break;
 
+    loopRoutingQueue();
+
 #ifdef KNX_TUNNELING
     loopTunnelTimers();
 #endif
@@ -778,6 +844,29 @@ bool IpDataLinkLayer::loopHandleDatagram()
         case RoutingBusy:
         {
             _stats.routingRxBusy++;
+            // Header, structure length, device state, wait time, then the control field,
+            // which is not read: 03_02_06 4.1.4 gives six octets after the header, its
+            // Figure 4 shows four.
+            if (len < KNXIP_HEADER_LEN + 4)
+                break;
+            // 03_08_05 2.3.5: no ROUTING_INDICATION for the wait time tw, or for what is
+            // left of an earlier one if that is longer, and then for a random 0..N x 50 ms
+            // more, N counting the ROUTING_BUSYs that came 10 ms or more after the one
+            // before. A sender's tw is at most 100 ms by the same clause; a larger value
+            // is held to that. Every control field value pauses the same way, since none
+            // is interpreted here.
+            const uint32_t now = millis();
+            uint16_t tw = getWord(buffer + 8);
+            if (tw > 100)
+                tw = 100;
+            if ((_routingBusyCount == 0 || now - _routingBusyLastAt >= 10) && _routingBusyCount < 255)
+                _routingBusyCount++;
+            _routingBusyLastAt = now;
+            const uint32_t end = now + tw;
+            if (!_routingBusy || (int32_t)(end - _routingBusyEnd) > 0)
+                _routingBusyEnd = end;
+            _routingBusy = true;
+            _routingResumeAt = _routingBusyEnd + (uint32_t)random(0, (long)_routingBusyCount * 50 + 1);
             break;
         }
 
@@ -1714,6 +1803,15 @@ void IpDataLinkLayer::enabled(bool value)
     {
         _platform.closeMultiCast();
         _enabled = false;
+        // Not kept for later: sent once the link is back, they would be stale.
+        while (_routingQueueCount > 0)
+        {
+            free(_routingQueue[_routingQueueFirst]);
+            _routingQueue[_routingQueueFirst] = nullptr;
+            _routingQueueFirst = (_routingQueueFirst + 1) % RoutingQueueDepth;
+            _routingQueueCount--;
+            _stats.routingQueueDrops++;
+        }
         return;
     }
 }
@@ -1741,49 +1839,4 @@ bool IpDataLinkLayer::sendBytes(uint8_t* bytes, uint16_t length)
     return _platform.sendBytesMultiCast(bytes, length);
 }
 
-bool IpDataLinkLayer::isSendLimitReached()
-{
-    uint32_t curTime = millis() / 100;
-
-    // check if the countbuffer must be adjusted
-    if(_frameCountTimeBase >= curTime)
-    {
-        uint32_t timeBaseDiff = _frameCountTimeBase - curTime;
-        if(timeBaseDiff > 10)
-            timeBaseDiff = 10;
-        for(int i = 0; i < timeBaseDiff ; i++)
-        {
-            _frameCountBase++;
-            _frameCountBase = _frameCountBase % 10;
-            _frameCount[_frameCountBase] = 0;
-        }
-        _frameCountTimeBase = curTime;
-    }
-    else // _frameCountTimeBase < curTime => millis overflow, reset
-    {
-        for(int i = 0; i < 10 ; i++)
-            _frameCount[i] = 0;
-        _frameCountBase = 0;
-        _frameCountTimeBase = curTime;
-    }
-
-    //check if we are over the limit
-    uint16_t sum = 0;
-    for(int i = 0; i < 10 ; i++)
-        sum += _frameCount[i];
-    if(sum > 50)
-    {
-        println("Dropping packet due to 50p/s limit");
-        return true;   // drop packet
-    }
-    else
-    {
-        _frameCount[_frameCountBase]++;
-        //print("sent packages in last 1000ms: ");
-        //print(sum);
-        //print(" curTime: ");
-        //println(curTime);
-        return false;
-    }
-}
 #endif

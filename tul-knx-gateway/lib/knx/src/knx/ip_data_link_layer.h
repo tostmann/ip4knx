@@ -20,7 +20,9 @@
 struct KnxIpStats
 {
     uint32_t routingTx = 0;            // ROUTING_INDICATIONs sent
-    uint32_t routingLimitDrops = 0;    // ROUTING_INDICATIONs the send limit dropped
+    uint32_t routingTxFailed = 0;      // of those, ones the IP stack refused
+    uint32_t routingQueueDrops = 0;    // ROUTING_INDICATIONs a full send queue gave up
+    uint32_t routingQueuePeak = 0;     // most waiting at once
     uint32_t routingPeakPerSecond = 0; // most sent within one second (calendar seconds)
     uint32_t routingRxLostMessage = 0; // ROUTING_LOST_MESSAGEs received
     uint32_t routingRxBusy = 0;        // ROUTING_BUSYs received
@@ -83,9 +85,25 @@ class IpDataLinkLayer : public DataLinkLayer
     uint32_t _routingInSecond = 0;
     bool _enabled = false;
     bool _knxBusConnected = false;  // Track KNX bus connection status
-    uint8_t _frameCount[10] = {0,0,0,0,0,0,0,0,0,0};
-    uint8_t _frameCountBase = 0;
-    uint32_t _frameCountTimeBase = 0;
+    // ROUTING_INDICATIONs wait here before they go out: at most 50 in any second
+    // and 5 ms apart (03_02_06 2.1), none while another router is busy (03_08_05
+    // 2.3.5).
+    static const uint8_t RoutingQueueDepth = 32;
+    uint8_t* _routingQueue[RoutingQueueDepth] = {};
+    uint16_t _routingQueueLen[RoutingQueueDepth] = {};
+    uint8_t _routingQueueFirst = 0;
+    uint8_t _routingQueueCount = 0;
+    uint32_t _routingSentAt[50] = {};  // the last 50 send times, oldest at _routingSentNext once full
+    uint8_t _routingSentNext = 0;
+    uint8_t _routingSentCount = 0;
+    uint32_t _routingLastSentAt = 0;
+    bool _routingBusy = false;         // paused by a ROUTING_BUSY
+    uint32_t _routingBusyEnd = 0;      // tw over
+    uint32_t _routingResumeAt = 0;     // tw + trandom over
+    uint32_t _routingBusyLastAt = 0;
+    uint8_t _routingBusyCount = 0;     // N
+    uint32_t _routingBusyDecAt = 0;
+    void loopRoutingQueue();
     uint32_t _unhandledLoggedAt = 0;   // the unknown-service log line, at most one a second
     uint32_t _unhandledSuppressed = 0;
     bool sendFrame(CemiFrame& frame);
@@ -111,7 +129,6 @@ class IpDataLinkLayer : public DataLinkLayer
     void loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t length);
 #endif
     bool sendBytes(uint8_t* buffer, uint16_t length);
-    bool isSendLimitReached();
 
     IpParameterObject& _ipParameters;
     DataLinkLayerCallbacks* _dllcb;
