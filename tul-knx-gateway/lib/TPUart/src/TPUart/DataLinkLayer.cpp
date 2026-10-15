@@ -389,7 +389,7 @@ namespace TPUart
                 if (_regReadPending)
                 {
                     _regReadPending = false;
-                    _regReadTimeouts++;
+                    _regReadTimeouts = _regReadTimeouts + 1;
                 }
                 rxUnlock();
             }
@@ -1037,11 +1037,11 @@ namespace TPUart
         if (uartLineErrors() - _regReadErrSnapshot > 1)
         {
             _regReadPending = false;
-            _regReadDropped++;
+            _regReadDropped = _regReadDropped + 1;
             return false;
         }
 
-        _regReadAnswers++;
+        _regReadAnswers = _regReadAnswers + 1;
         _regReadValue = (uint8_t)value;
         _regReadAt = millis();
         _regReadValid = true;

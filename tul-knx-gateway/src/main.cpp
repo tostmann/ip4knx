@@ -2383,7 +2383,7 @@ void loop() {
             // which is the behaviour we want on a busy bus.
             if (acr0FaultPending && !acr0ReadRequested && !tp.internalRegisterPending()) {
                 if (acr0FaultAttempts < ACR0_FAULT_MAX_ATTEMPTS) {
-                    acr0FaultAttempts++;
+                    acr0FaultAttempts = acr0FaultAttempts + 1;
                     acr0ReadRequested = true;
                 } else {
                     Serial.println("ACR0: giving up on the fault reading (no quiet line)");

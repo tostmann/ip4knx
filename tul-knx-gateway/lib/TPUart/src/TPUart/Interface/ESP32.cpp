@@ -53,11 +53,11 @@ namespace TPUart
                         // the fact — which matters most for the register
                         // readback, whose answer carries no marker of its own.
                         case UART_PARITY_ERR:
-                            _interface->_parityErrors++;
+                            _interface->_parityErrors = _interface->_parityErrors + 1;
                             break;
 
                         case UART_FRAME_ERR:
-                            _interface->_frameErrors++;
+                            _interface->_frameErrors = _interface->_frameErrors + 1;
                             break;
 
                         default:
