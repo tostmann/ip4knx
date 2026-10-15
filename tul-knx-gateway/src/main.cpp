@@ -390,6 +390,14 @@ volatile bool progModeReqValue   = false;
 // before the restart, so a save scheduled in between cannot write it back.
 volatile bool knxConfigResetPending = false;
 
+// Longest time between two loop() passes since boot, for the status page. A
+// received KNXnet/IP datagram -- a tunnel client's ack, say -- waits that long
+// before the stack reads it.
+uint32_t loopLastPassAt = 0;
+volatile uint32_t loopGapMaxMs = 0;
+volatile uint32_t loopGapMaxAt = 0;      // millis() when it ended
+volatile uint32_t loopGapsOver1s = 0;
+
 // ESP-IDF private brownout-disable (no public Arduino header for ESP32-C6)
 extern "C" void esp_brownout_disable(void);
 
@@ -1672,6 +1680,56 @@ void setup() {
         json += "\"knxip_rx_dropped\":" + String(knx.platform().udpRxDropped()) + ",";
         // KNXnet/IP routing runs only once an individual address other than 15.15.0 is set.
         json += "\"knx_routing\":" + String(dl && dl->routingActive() ? "true" : "false") + ",";
+
+        // Measurement counters since boot: loop() pass gaps, the KNXnet/IP receive
+        // backlog, routing, and how tunnel clients acknowledge what they get.
+        json += "\"loop\":{\"gap_max_ms\":" + String(loopGapMaxMs) +
+                ",\"gap_max_at_s\":" + String(loopGapMaxAt / 1000) +
+                ",\"gaps_over_1s\":" + String(loopGapsOver1s) + "},";
+        json += "\"knxip\":{\"rx_backlog_peak\":" + String(knx.platform().udpRxBacklogPeak());
+        if (dl) {
+            const KnxIpStats& st = dl->stats();
+            json += ",\"routing\":{\"tx\":" + String(st.routingTx) +
+                    ",\"tx_limit_drops\":" + String(st.routingLimitDrops) +
+                    ",\"tx_peak_per_s\":" + String(st.routingPeakPerSecond) +
+                    ",\"rx_lost_message\":" + String(st.routingRxLostMessage) +
+                    ",\"rx_busy\":" + String(st.routingRxBusy) + "}";
+            json += ",\"tunnel\":{\"requests\":" + String(st.tunnelRequests) +
+                    ",\"acks\":" + String(st.tunnelAcks) +
+                    ",\"config_requests\":" + String(st.configRequests) +
+                    ",\"config_acks\":" + String(st.configAcks) +
+                    ",\"ack_unknown_channel\":" + String(st.ackUnknownChannel) +
+                    ",\"ack_error\":" + String(st.ackError) +
+                    ",\"ack_rtt_max_ms\":" + String(st.ackRttMaxMs) +
+                    ",\"rx_repeats\":" + String(st.tunnelRxRepeats) +
+                    ",\"rx_out_of_order\":" + String(st.tunnelRxOutOfOrder) +
+                    ",\"config_rx_repeats\":" + String(st.configRxRepeats) +
+                    ",\"config_rx_out_of_order\":" + String(st.configRxOutOfOrder);
+#ifdef KNX_TUNNELING
+            // The open channels, each counted since its connect.
+            json += ",\"slots\":[";
+            const KnxIpTunnelConnection* slots = dl->tunnelSlots();
+            bool firstSlot = true;
+            for (int i = 0; i < KNX_TUNNELING; i++) {
+                const KnxIpTunnelConnection& t = slots[i];
+                if (t.ChannelId == 0)
+                    continue;
+                json += firstSlot ? "{" : ",{";
+                firstSlot = false;
+                json += "\"channel\":" + String(t.ChannelId) +
+                        ",\"ia\":\"" + String((t.IndividualAddress >> 12) & 0x0F) + "." +
+                        String((t.IndividualAddress >> 8) & 0x0F) + "." + String(t.IndividualAddress & 0xFF) + "\"" +
+                        ",\"config\":" + String(t.IsConfig ? "true" : "false") +
+                        ",\"requests\":" + String(t.StatRequests) +
+                        ",\"acks\":" + String(t.StatAcks) +
+                        ",\"repeats\":" + String(t.StatRepeats) +
+                        ",\"out_of_order\":" + String(t.StatOutOfOrder) + "}";
+            }
+            json += "]";
+#endif
+            json += "}";
+        }
+        json += "},";
         
         auto tpLayer = ((Bau091A&)knx.bau()).getSecondaryDataLinkLayer();
         if (tpLayer) {
@@ -1704,6 +1762,17 @@ void setup() {
             json += "\"rx_stack_free\":" + String(tp.rxTaskStackFree()) + ",";
             json += "\"desync_resets\":" + String(tp.desyncResets()) + ",";
             json += "\"tx_dropped\":" + String(tp.txDropped()) + ",";
+            // Acknowledges the receive task had to park, how long until written;
+            // resets for a missing confirmation; queue high water; confirmations
+            // that came outside the echo path (since boot).
+            json += "\"ack_parked\":" + String(tp.ackParked()) + ",";
+            json += "\"ack_park_replaced\":" + String(tp.ackParkReplaced()) + ",";
+            json += "\"ack_park_written\":" + String(tp.ackParkWritten()) + ",";
+            json += "\"ack_park_age_max_us\":" + String(tp.ackParkAgeMaxUs()) + ",";
+            json += "\"tx_watchdog_resets\":" + String(tp.txWatchdogResets()) + ",";
+            json += "\"tx_queue_peak\":" + String((unsigned)tp.txQueuePeak()) + ",";
+            json += "\"orphan_cons\":" + String(tp.orphanCons()) + ",";
+            json += "\"orphan_cons_idle\":" + String(tp.orphanConsIdle()) + ",";
 #ifdef TPUART_DROP_TEST_MS
             json += "\"drop_test\":{\"resets\":" + String(tp.dropTestResets()) +
                     ",\"armed_while_pending\":" + String(tp.dropTestArmedWhilePending()) +
@@ -1765,6 +1834,9 @@ void setup() {
             json += "\"rx_stack_free\":0,";
             json += "\"desync_resets\":0,";
             json += "\"tx_dropped\":0,";
+            json += "\"ack_parked\":0,\"ack_park_replaced\":0,\"ack_park_written\":0,"
+                    "\"ack_park_age_max_us\":0,\"tx_watchdog_resets\":0,\"tx_queue_peak\":0,"
+                    "\"orphan_cons\":0,\"orphan_cons_idle\":0,";
             json += "\"auto_ack\":false,";
             json += "\"acr0\":" + acr0StatusJson(0) + "}";
         }
@@ -1970,6 +2042,18 @@ uint32_t wifiDownSince     = 0;           // 0 = link considered up
 uint32_t lastReconnectKick = 0;           // last forced WiFi.begin() timestamp
 
 void loop() {
+    const uint32_t passAt = millis();
+    if (loopLastPassAt != 0) {   // the first pass follows setup(), which is not a gap
+        const uint32_t gap = passAt - loopLastPassAt;
+        if (gap > loopGapMaxMs) {
+            loopGapMaxMs = gap;
+            loopGapMaxAt = passAt;
+        }
+        if (gap > 1000)
+            loopGapsOver1s = loopGapsOver1s + 1;
+    }
+    loopLastPassAt = passAt;
+
     knx.loop();
 
     // H2: apply web-requested progMode change here (main task only).
