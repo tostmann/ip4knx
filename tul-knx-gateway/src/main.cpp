@@ -1699,8 +1699,16 @@ void setup() {
                     ",\"config_requests\":" + String(st.configRequests) +
                     ",\"config_acks\":" + String(st.configAcks) +
                     ",\"ack_unknown_channel\":" + String(st.ackUnknownChannel) +
+                    ",\"ack_foreign\":" + String(st.ackForeign) +
+                    ",\"ack_stale\":" + String(st.ackStale) +
                     ",\"ack_error\":" + String(st.ackError) +
                     ",\"ack_rtt_max_ms\":" + String(st.ackRttMaxMs) +
+                    ",\"resends\":" + String(st.tunnelResends) +
+                    ",\"ack_timeouts\":" + String(st.tunnelAckTimeouts) +
+                    ",\"queue_drops\":" + String(st.tunnelQueueDrops) +
+                    ",\"queue_peak\":" + String(st.tunnelQueuePeak) +
+                    ",\"queue_bytes_peak\":" + String(st.tunnelQueueBytesPeak) +
+                    ",\"queued_bytes\":" + String(KnxIpTunnelConnection::QueuedBytes) +
                     ",\"rx_repeats\":" + String(st.tunnelRxRepeats) +
                     ",\"rx_out_of_order\":" + String(st.tunnelRxOutOfOrder) +
                     ",\"config_rx_repeats\":" + String(st.configRxRepeats) +
@@ -1722,6 +1730,10 @@ void setup() {
                         ",\"config\":" + String(t.IsConfig ? "true" : "false") +
                         ",\"requests\":" + String(t.StatRequests) +
                         ",\"acks\":" + String(t.StatAcks) +
+                        ",\"resends\":" + String(t.StatResends) +
+                        ",\"drops\":" + String(t.StatDrops) +
+                        ",\"queued\":" + String(t.TxCount) +
+                        ",\"queue_peak\":" + String(t.StatQueuePeak) +
                         ",\"repeats\":" + String(t.StatRepeats) +
                         ",\"out_of_order\":" + String(t.StatOutOfOrder) + "}";
             }

@@ -10,7 +10,13 @@
 #include "knx_ip_tunnel_connection.h"
 #include "service_families.h"
 
-// Counted since boot for the status page; none of them changes behaviour.
+// Datagrams IpDataLinkLayer::loop() reads per pass, before it runs the timers:
+// an ack waiting in the receive buffer is seen before its request is resent.
+#ifndef KNX_IP_RX_PER_LOOP
+#define KNX_IP_RX_PER_LOOP 8
+#endif
+
+// Counted since boot for the status page.
 struct KnxIpStats
 {
     uint32_t routingTx = 0;            // ROUTING_INDICATIONs sent
@@ -23,8 +29,15 @@ struct KnxIpStats
     uint32_t configRequests = 0;       // DEVICE_CONFIGURATION_REQUESTs sent
     uint32_t configAcks = 0;           // DEVICE_CONFIGURATION_ACKs received
     uint32_t ackUnknownChannel = 0;    // acks for no open channel
+    uint32_t ackForeign = 0;           // acks from a host other than the channel's client
+    uint32_t ackStale = 0;             // acks for a request no longer on the wire
     uint32_t ackError = 0;             // acks with a status other than E_NO_ERROR
     uint32_t ackRttMaxMs = 0;          // longest request-to-ack time
+    uint32_t tunnelResends = 0;        // requests sent again for a missing ack
+    uint32_t tunnelAckTimeouts = 0;    // channels closed because the repeat was not acknowledged either
+    uint32_t tunnelQueueDrops = 0;     // frames a full queue gave up
+    uint32_t tunnelQueuePeak = 0;      // most frames queued for one channel
+    uint32_t tunnelQueueBytesPeak = 0; // most octets queued over all channels
     uint32_t tunnelRxRepeats = 0;      // TUNNELLING_REQUESTs received again
     uint32_t tunnelRxOutOfOrder = 0;   // TUNNELLING_REQUESTs with an unexpected sequence
     uint32_t configRxRepeats = 0;      // DEVICE_CONFIGURATION_REQUESTs received again
@@ -72,6 +85,8 @@ class IpDataLinkLayer : public DataLinkLayer
     uint8_t _frameCount[10] = {0,0,0,0,0,0,0,0,0,0};
     uint8_t _frameCountBase = 0;
     uint32_t _frameCountTimeBase = 0;
+    uint32_t _unhandledLoggedAt = 0;   // the unknown-service log line, at most one a second
+    uint32_t _unhandledSuppressed = 0;
     bool sendFrame(CemiFrame& frame);
 #ifdef KNX_TUNNELING
     void sendFrameToTunnel(KnxIpTunnelConnection *tunnel, CemiFrame& frame);
@@ -83,8 +98,14 @@ class IpDataLinkLayer : public DataLinkLayer
     void loopHandleDescriptionRequest(uint8_t* buffer, uint16_t length);
     void loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr);
     void loopHandleTunnelingRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr);
-    void loopHandleAck(uint8_t* buffer, uint16_t length, bool config);
+    void loopHandleAck(uint8_t* buffer, uint16_t length, bool config, uint32_t src_addr);
+    void sendTunnelHead(KnxIpTunnelConnection* tunnel);
+    void resendOrCloseTunnel(KnxIpTunnelConnection* tunnel);
+    bool dropQueuedGroupTelegram(KnxIpTunnelConnection* tunnel);
+    void sendDisconnectRequest(KnxIpTunnelConnection* tunnel);
+    void loopTunnelTimers();
 #endif
+    bool loopHandleDatagram();
 #if KNX_SERVICE_FAMILY_CORE >= 2
     void loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t length);
 #endif

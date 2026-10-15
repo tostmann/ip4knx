@@ -27,6 +27,7 @@
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define KNXIP_HEADER_LEN 0x6
@@ -242,38 +243,189 @@ void IpDataLinkLayer::dataIndicationToTunnel(CemiFrame& frame)
     sendFrameToTunnel(tun, frame);
 }
 
+// Queues a request to the client; sendTunnelHead() keeps one of them on the wire.
 void IpDataLinkLayer::sendFrameToTunnel(KnxIpTunnelConnection *tunnel, CemiFrame& frame)
 {
 #ifdef KNX_LOG_TUNNELING
     print("Send to Channel: ");
     println(tunnel->ChannelId, 16);
 #endif
-    KnxIpTunnelingRequest req(frame);
-    req.connectionHeader().sequenceCounter(tunnel->SequenceCounter_S++);
-    req.connectionHeader().length(LEN_CH);
-    req.connectionHeader().channelId(tunnel->ChannelId);
+    // The service follows the connection, not the message code: device management
+    // speaks DEVICE_CONFIGURATION_REQUEST (03_08_03 2.3.2), tunnelling
+    // TUNNELLING_REQUEST (03_08_04 2.2.1) -- also for the answer to an M_Prop request
+    // a client sent through its tunnel, which it would not acknowledge otherwise.
+    // (upstream c80cd1c)
+    const uint16_t service = tunnel->IsConfig ? DeviceConfigurationRequest : TunnelingRequest;
+    // What a full queue gives up first: a group telegram from the bus. A
+    // confirmation is what a client waits for, and individual frames and broadcasts
+    // carry management traffic.
+    const bool droppable = frame.messageCode() == L_data_ind && frame.addressType() == AddressType::GroupAddress && frame.destinationAddress() != 0;
 
-    const bool config = frame.messageCode() != L_data_req && frame.messageCode() != L_data_con && frame.messageCode() != L_data_ind;
-    if(config)
-        req.serviceTypeIdentifier(DeviceConfigurationRequest);
+    const uint16_t cemiLen = frame.totalLenght();
+    const uint16_t len = KNXIP_HEADER_LEN + LEN_CH + cemiLen;
+    while (tunnel->TxCount >= KNX_TUNNEL_QUEUE_DEPTH || KnxIpTunnelConnection::QueuedBytes + len > KNX_TUNNEL_QUEUE_BYTES)
+    {
+        if (!dropQueuedGroupTelegram(tunnel))
+        {
+            // Nothing left to give up on this channel: the new frame is lost. A client
+            // that stopped acknowledging is closed by the resend timer.
+            tunnel->StatDrops++;
+            _stats.tunnelQueueDrops++;
+            return;
+        }
+    }
 
-    // Timed until its ack arrives (status page); a newer request replaces one
-    // still waiting.
-    tunnel->LastSentSeq = req.connectionHeader().sequenceCounter();
-    tunnel->LastSentAt = millis();
-    tunnel->AckPending = true;
+    uint8_t* data = (uint8_t*)malloc(len);
+    if (data == nullptr)
+    {
+        tunnel->StatDrops++;
+        _stats.tunnelQueueDrops++;
+        return;
+    }
+    data[0] = KNXIP_HEADER_LEN;
+    data[1] = KNXIP_PROTOCOL_VERSION;
+    pushWord(service, data + 2);
+    pushWord(len, data + 4);
+    data[6] = LEN_CH;
+    data[7] = tunnel->ChannelId;
+    data[8] = 0;   // sequence counter, set when it is first sent
+    data[9] = 0;   // reserved
+    memcpy(data + KNXIP_HEADER_LEN + LEN_CH, frame.data(), cemiLen);
+
+    const uint8_t idx = (tunnel->TxFirst + tunnel->TxCount) % KNX_TUNNEL_QUEUE_DEPTH;
+    tunnel->TxData[idx] = data;
+    tunnel->TxLen[idx] = len;
+    tunnel->TxDroppable[idx] = droppable;
+    tunnel->TxCount++;
+    KnxIpTunnelConnection::QueuedBytes += len;
+    if (tunnel->TxCount > tunnel->StatQueuePeak)
+        tunnel->StatQueuePeak = tunnel->TxCount;
+    if (tunnel->TxCount > _stats.tunnelQueuePeak)
+        _stats.tunnelQueuePeak = tunnel->TxCount;
+    if (KnxIpTunnelConnection::QueuedBytes > _stats.tunnelQueueBytesPeak)
+        _stats.tunnelQueueBytesPeak = KnxIpTunnelConnection::QueuedBytes;
+
+    sendTunnelHead(tunnel);
+}
+
+// Gives up the oldest queued group telegram that is not on the wire; the rest keep
+// their order. False when there is none.
+bool IpDataLinkLayer::dropQueuedGroupTelegram(KnxIpTunnelConnection* tunnel)
+{
+    for (uint8_t i = tunnel->TxOnWire ? 1 : 0; i < tunnel->TxCount; i++)
+    {
+        const uint8_t idx = (tunnel->TxFirst + i) % KNX_TUNNEL_QUEUE_DEPTH;
+        if (!tunnel->TxDroppable[idx])
+            continue;
+
+        free(tunnel->TxData[idx]);
+        KnxIpTunnelConnection::QueuedBytes -= tunnel->TxLen[idx];
+        for (uint8_t j = i; j + 1 < tunnel->TxCount; j++)
+        {
+            const uint8_t to = (tunnel->TxFirst + j) % KNX_TUNNEL_QUEUE_DEPTH;
+            const uint8_t from = (tunnel->TxFirst + j + 1) % KNX_TUNNEL_QUEUE_DEPTH;
+            tunnel->TxData[to] = tunnel->TxData[from];
+            tunnel->TxLen[to] = tunnel->TxLen[from];
+            tunnel->TxDroppable[to] = tunnel->TxDroppable[from];
+        }
+        const uint8_t last = (tunnel->TxFirst + tunnel->TxCount - 1) % KNX_TUNNEL_QUEUE_DEPTH;
+        tunnel->TxData[last] = nullptr;
+        tunnel->TxLen[last] = 0;
+        tunnel->TxCount--;
+        tunnel->StatDrops++;
+        _stats.tunnelQueueDrops++;
+        return true;
+    }
+    return false;
+}
+
+// Sends the oldest queued request unless one is on the wire: a channel has one
+// unacknowledged request at a time (03_08_04 2.6.1).
+void IpDataLinkLayer::sendTunnelHead(KnxIpTunnelConnection* tunnel)
+{
+    if (tunnel->TxOnWire || tunnel->TxCount == 0)
+        return;
+
+    uint8_t* data = tunnel->TxData[tunnel->TxFirst];
+    data[8] = tunnel->SequenceCounter_S++;
+    tunnel->TxOnWire = true;
+    tunnel->TxRepeats = 0;
+    tunnel->TxSentAt = millis();
+    tunnel->TxFirstSentAt = tunnel->TxSentAt;
     tunnel->StatRequests++;
-    if (config)
+    if (tunnel->IsConfig)
         _stats.configRequests++;
     else
         _stats.tunnelRequests++;
+    _platform.sendBytesUniCast(tunnel->IpAddress, tunnel->PortData, data, tunnel->TxLen[tunnel->TxFirst]);
+}
 
-    _platform.sendBytesUniCast(tunnel->IpAddress, tunnel->PortData, req.data(), req.totalLength());
+// No ack in time, or a negative one: the request on the wire goes out again with its
+// sequence counter -- once on a tunnelling connection (03_08_04 2.6.1), three times
+// on a device management connection (03_08_03 2.3.2) -- and after that the channel
+// is closed with a DISCONNECT_REQUEST.
+void IpDataLinkLayer::resendOrCloseTunnel(KnxIpTunnelConnection* tunnel)
+{
+    if (tunnel->TxRepeats < (tunnel->IsConfig ? 3 : 1))
+    {
+        tunnel->TxRepeats++;
+        tunnel->TxSentAt = millis();
+        tunnel->StatResends++;
+        _stats.tunnelResends++;
+        _platform.sendBytesUniCast(tunnel->IpAddress, tunnel->PortData, tunnel->TxData[tunnel->TxFirst], tunnel->TxLen[tunnel->TxFirst]);
+        return;
+    }
+
+    println("request to a tunnel client not acknowledged after its repeat -> channel closed");
+    _stats.tunnelAckTimeouts++;
+    sendDisconnectRequest(tunnel);
+    tunnel->Reset();
+}
+
+// DISCONNECT_REQUEST to the client's control endpoint, carrying the server's own
+// control endpoint like the connect response does (08_TSSH 3.5.3: IP_BDUT,
+// CPORT_BDUT; 03_08_02 5.4). (upstream bf31dfb)
+void IpDataLinkLayer::sendDisconnectRequest(KnxIpTunnelConnection* tunnel)
+{
+    KnxIpDisconnectRequest discReq;
+    discReq.channelId(tunnel->ChannelId);
+    discReq.hpaiCtrl().length(LEN_IPHPAI);
+    discReq.hpaiCtrl().code(IPV4_UDP);
+    discReq.hpaiCtrl().ipAddress(_ipParameters.propertyValue<uint32_t>(PID_CURRENT_IP_ADDRESS));
+    discReq.hpaiCtrl().ipPortNumber(KNXIP_MULTICAST_PORT);
+    _platform.sendBytesUniCast(tunnel->IpAddress, tunnel->PortCtrl, discReq.data(), discReq.totalLength());
+}
+
+// Heartbeat (03_08_02 5.4) and the request timeouts: TUNNELLING_REQUEST_TIMEOUT 1 s
+// (03_08_04 2.6.1), DEVICE_CONFIGURATION_REQUEST_TIMEOUT 10 s (03_08_03 2.3.2).
+void IpDataLinkLayer::loopTunnelTimers()
+{
+    for(int i = 0; i < KNX_TUNNELING; i++)
+    {
+        KnxIpTunnelConnection* tunnel = &tunnels[i];
+        if(tunnel->ChannelId == 0)
+            continue;
+
+        if(millis() - tunnel->lastHeartbeat > 120000)
+        {
+#ifdef KNX_LOG_TUNNELING
+            print("Closed Tunnel 0x");
+            print(tunnel->ChannelId, 16);
+            println(" due to no heartbeat in 2 minutes");
+#endif
+            sendDisconnectRequest(tunnel);
+            tunnel->Reset();
+        }
+        else if(tunnel->TxOnWire && millis() - tunnel->TxSentAt >= (tunnel->IsConfig ? 10000u : 1000u))
+            resendOrCloseTunnel(tunnel);
+    }
 }
 
 // Counted for the status page only: nothing is resent yet, so an ack changes no
 // state of the channel.
-void IpDataLinkLayer::loopHandleAck(uint8_t* buffer, uint16_t length, bool config)
+// The client acknowledges the request on the wire: it leaves the queue and the next
+// one goes out (03_08_04 2.6.1, 03_08_03 2.3.2).
+void IpDataLinkLayer::loopHandleAck(uint8_t* buffer, uint16_t length, bool config, uint32_t src_addr)
 {
     if (length < KNXIP_HEADER_LEN + LEN_CH)
         return;
@@ -297,21 +449,47 @@ void IpDataLinkLayer::loopHandleAck(uint8_t* buffer, uint16_t length, bool confi
         return;
     }
 
+    // Only the channel's client may take a request off its queue.
+    if (!fromTunnelPeer(tun, src_addr))
+    {
+        _stats.ackForeign++;
+        return;
+    }
+
+    // A late ack for a request already repeated and acknowledged, or the other
+    // connection type's service.
+    if (config != tun->IsConfig || !tun->TxOnWire || ack.connectionHeader().sequenceCounter() != tun->TxData[tun->TxFirst][8])
+    {
+        _stats.ackStale++;
+        return;
+    }
+
     if (ack.connectionHeader().status() != E_NO_ERROR)
+    {
+        // A negative ack counts as none (03_08_04 2.6.1).
         _stats.ackError++;
+        resendOrCloseTunnel(tun);
+        return;
+    }
+
     if (config)
         _stats.configAcks++;
     else
         _stats.tunnelAcks++;
     tun->StatAcks++;
+    tun->lastHeartbeat = millis();   // a correctly received frame (03_08_02 5.4)
+    const uint32_t rtt = millis() - tun->TxFirstSentAt;
+    if (rtt > _stats.ackRttMaxMs)
+        _stats.ackRttMaxMs = rtt;
 
-    if (tun->AckPending && ack.connectionHeader().sequenceCounter() == tun->LastSentSeq)
-    {
-        const uint32_t rtt = millis() - tun->LastSentAt;
-        if (rtt > _stats.ackRttMaxMs)
-            _stats.ackRttMaxMs = rtt;
-        tun->AckPending = false;
-    }
+    free(tun->TxData[tun->TxFirst]);
+    KnxIpTunnelConnection::QueuedBytes -= tun->TxLen[tun->TxFirst];
+    tun->TxData[tun->TxFirst] = nullptr;
+    tun->TxLen[tun->TxFirst] = 0;
+    tun->TxFirst = (tun->TxFirst + 1) % KNX_TUNNEL_QUEUE_DEPTH;
+    tun->TxCount--;
+    tun->TxOnWire = false;
+    sendTunnelHead(tun);
 }
 
 bool IpDataLinkLayer::isConfigChannel(uint8_t channelId)
@@ -444,45 +622,33 @@ void IpDataLinkLayer::loop()
     if (!_enabled)
         return;
 
+    // Received datagrams first, several a pass: an ack waiting in the receive buffer
+    // is seen before the timers below would repeat its request.
+    for (uint8_t n = 0; n < KNX_IP_RX_PER_LOOP; n++)
+        if (!loopHandleDatagram())
+            break;
+
 #ifdef KNX_TUNNELING
-    for(int i = 0; i < KNX_TUNNELING; i++)
-    {
-        if(tunnels[i].ChannelId != 0)
-        {
-            if(millis() - tunnels[i].lastHeartbeat > 120000)
-            {
-    #ifdef KNX_LOG_TUNNELING
-                print("Closed Tunnel 0x");
-                print(tunnels[i].ChannelId, 16);
-                println(" due to no heartbeat in 2 minutes");
-    #endif
-                KnxIpDisconnectRequest discReq;
-                discReq.channelId(tunnels[i].ChannelId);
-                discReq.hpaiCtrl().length(LEN_IPHPAI);
-                discReq.hpaiCtrl().code(IPV4_UDP);
-                discReq.hpaiCtrl().ipAddress(tunnels[i].IpAddress);
-                discReq.hpaiCtrl().ipPortNumber(tunnels[i].PortCtrl);
-                _platform.sendBytesUniCast(tunnels[i].IpAddress, tunnels[i].PortCtrl, discReq.data(), discReq.totalLength());
-                tunnels[i].Reset();
-            }
-        }
-    }
+    loopTunnelTimers();
 #endif
+}
 
-
+// Reads and handles one datagram; false when none was waiting.
+bool IpDataLinkLayer::loopHandleDatagram()
+{
     uint8_t buffer[512];
     uint16_t remotePort = 0;
     uint32_t remoteAddr = 0;
     int len = _platform.readBytesMultiCast(buffer, 512, remoteAddr, remotePort);
     if (len <= 0)
-        return;
+        return false;
 
     if (len < KNXIP_HEADER_LEN)
-        return;
+        return true;
     
     if (buffer[0] != KNXIP_HEADER_LEN 
         || buffer[1] != KNXIP_PROTOCOL_VERSION)
-        return;
+        return true;
 
     // KNXnet/IP total length (octets 4-5) must equal the received datagram; a
     // mismatch is malformed -> discard (TSSH 3.2.4/3.2.5, both reference stacks
@@ -490,7 +656,7 @@ void IpDataLinkLayer::loop()
     uint16_t declaredLen = 0;
     popWord(declaredLen, buffer + 4);
     if (declaredLen != (uint16_t)len)
-        return;
+        return true;
 
 #ifdef KNX_ACTIVITYCALLBACK
     if(_dllcb)
@@ -560,6 +726,10 @@ void IpDataLinkLayer::loop()
             break;
         }
 
+        // The answer to a DISCONNECT_REQUEST the server sent; nothing waits for it.
+        case DisconnectResponse:
+            break;
+
         case DescriptionRequest:
         {
             loopHandleDescriptionRequest(buffer, len);
@@ -575,18 +745,18 @@ void IpDataLinkLayer::loop()
         case TunnelingRequest:
         {
             loopHandleTunnelingRequest(buffer, len, remoteAddr);
-            return;
+            break;
         }
 
         case DeviceConfigurationAck:
         {
-            loopHandleAck(buffer, len, true);
+            loopHandleAck(buffer, len, true, remoteAddr);
             break;
         }
 
         case TunnelingAck:
         {
-            loopHandleAck(buffer, len, false);
+            loopHandleAck(buffer, len, false, remoteAddr);
             break;
         }
 #endif
@@ -605,10 +775,27 @@ void IpDataLinkLayer::loop()
         }
 
         default:
-            print("Unhandled service identifier: ");
-            println(code, HEX);
+            // At most one line a second: a peer sending a service this server does not
+            // implement must not fill the console.
+            if (millis() - _unhandledLoggedAt >= 1000)
+            {
+                print("Unhandled service identifier: ");
+                print(code, HEX);
+                if (_unhandledSuppressed)
+                {
+                    print(" (+");
+                    print(_unhandledSuppressed);
+                    print(" more not shown)");
+                }
+                println("");
+                _unhandledLoggedAt = millis();
+                _unhandledSuppressed = 0;
+            }
+            else
+                _unhandledSuppressed++;
             break;
     }
+    return true;
 }
 
 #if KNX_SERVICE_FAMILY_CORE >= 2
@@ -978,13 +1165,7 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
                 }
                 else
                 {
-                    KnxIpDisconnectRequest discReq;
-                    discReq.channelId(tunnels[firstResAndOccTunnel].ChannelId);
-                    discReq.hpaiCtrl().length(LEN_IPHPAI);
-                    discReq.hpaiCtrl().code(IPV4_UDP);
-                    discReq.hpaiCtrl().ipAddress(tunnels[firstResAndOccTunnel].IpAddress);
-                    discReq.hpaiCtrl().ipPortNumber(tunnels[firstResAndOccTunnel].PortCtrl);
-                    _platform.sendBytesUniCast(tunnels[firstResAndOccTunnel].IpAddress, tunnels[firstResAndOccTunnel].PortCtrl, discReq.data(), discReq.totalLength());
+                    sendDisconnectRequest(&tunnels[firstResAndOccTunnel]);
                     tunnels[firstResAndOccTunnel].Reset();
 
                     tunIdx = firstResAndOccTunnel;
