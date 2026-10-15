@@ -51,6 +51,31 @@ void CemiServer::clientAddress(uint16_t value)
     _clientAddress = value;
 }
 
+#ifdef KNX_TUNNELING
+void CemiServer::propertyInfoIndication(uint16_t objectType, uint8_t objectInstance, uint8_t propertyId,
+                                        const uint8_t* data, uint8_t length)
+{
+    // 08_TSSH 4.2.12 p.41: message code, object type (2), instance, PID, number of
+    // elements and start index (1 and 1), value. An object type above 0xFF would sit
+    // where the CemiFrame constructor reads the additional-info length; no interface
+    // object type is that large. (upstream bda4127)
+    if (data == nullptr || length == 0 || length > 8 || objectType > 0xFF)
+        return;
+
+    uint8_t info[7 + 8];
+    info[0] = M_PropInfo_ind;
+    pushWord(objectType, &info[1]);
+    info[3] = objectInstance;
+    info[4] = propertyId;
+    info[5] = 0x10;
+    info[6] = 0x01;
+    memcpy(&info[7], data, length);
+
+    CemiFrame frame(info, (uint16_t)(7 + length));
+    _dataLinkLayerPrimary->dataRequestToAllDevMgmt(frame);
+}
+#endif
+
 void CemiServer::dataConfirmationToTunnel(CemiFrame& frame)
 {
     MessageCode backupMsgCode = frame.messageCode();

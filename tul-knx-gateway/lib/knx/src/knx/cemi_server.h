@@ -36,6 +36,9 @@ class CemiServer
     void dataLinkLayerPrimary(DataLinkLayer& layer);
     // True for the individual address of an open tunnel.
     bool isTunnelAddress(uint16_t address) const;
+    // M_PropInfo.ind of an evented property to every device management connection.
+    void propertyInfoIndication(uint16_t objectType, uint8_t objectInstance, uint8_t propertyId,
+                                const uint8_t* data, uint8_t length);
 #endif
 
     // from data link layer

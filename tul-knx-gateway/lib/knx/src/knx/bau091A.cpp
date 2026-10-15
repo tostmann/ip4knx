@@ -172,6 +172,16 @@ void Bau091A::loop()
     // Update KNX bus connection status for IpDataLinkLayer
     // This enables E_KNX_CONNECTION response when TP-UART is disconnected
     _dlLayerPrimary.knxBusConnected(_dlLayerSecondary.busOperational());
+
+    // PID_KNXNETIP_DEVICE_STATE follows both sides; a change goes to every device
+    // management connection (03_08_03 2.5.20). (upstream 91dcaed)
+    if (_ipParameters.updateDeviceState(_dlLayerSecondary.busOperational(), _ipNetworkUp))
+    {
+#if defined(USE_CEMI_SERVER) && defined(KNX_TUNNELING)
+        const uint8_t state = _ipParameters.deviceState();
+        _cemiServer.propertyInfoIndication(OT_IP_PARAMETER, 1, PID_KNXNETIP_DEVICE_STATE, &state, 1);
+#endif
+    }
 }
 
 TPAckType Bau091A::isAckRequired(uint16_t address, bool isGrpAddr)

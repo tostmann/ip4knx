@@ -2060,6 +2060,13 @@ uint32_t lastReconnectKick = 0;           // last forced WiFi.begin() timestamp
 
 void loop() {
     const uint32_t passAt = millis();
+
+    // For PID_KNXNETIP_DEVICE_STATE: whether the IP side can carry KNXnet/IP.
+    static uint32_t ipStateAt = 0;
+    if (passAt - ipStateAt >= 1000) {
+        ipStateAt = passAt;
+        ((Bau091A&)knx.bau()).ipNetworkUp(knxNetworkUp());
+    }
     if (loopLastPassAt != 0) {   // the first pass follows setup(), which is not a gap
         const uint32_t gap = passAt - loopLastPassAt;
         if (gap > loopGapMaxMs) {

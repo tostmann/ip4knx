@@ -36,6 +36,8 @@ class DataLinkLayer
 #ifdef KNX_TUNNELING
     virtual void dataRequestToTunnel(CemiFrame& frame);
     virtual void dataRequestToChannelId(CemiFrame& frame, uint8_t channelId);
+    // To every open device management connection (M_PropInfo.ind).
+    virtual void dataRequestToAllDevMgmt(CemiFrame& frame);
     virtual void dataConfirmationToTunnel(CemiFrame& frame);
     virtual void dataIndicationToTunnel(CemiFrame& frame);
     virtual bool isTunnelAddress(uint16_t addr);

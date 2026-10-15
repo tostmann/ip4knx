@@ -63,6 +63,7 @@ class IpDataLinkLayer : public DataLinkLayer
 #ifdef KNX_TUNNELING
     void dataRequestToTunnel(CemiFrame& frame) override;
     void dataRequestToChannelId(CemiFrame& frame, uint8_t channelId) override;
+    void dataRequestToAllDevMgmt(CemiFrame& frame) override;
     void dataConfirmationToTunnel(CemiFrame& frame) override;
     void dataIndicationToTunnel(CemiFrame& frame) override;
     bool isTunnelAddress(uint16_t addr) override;

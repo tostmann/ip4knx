@@ -21,6 +21,8 @@ class Bau091A : public BauSystemBCoupler, public ITpUartCallBacks, public DataLi
 
     IpDataLinkLayer* getPrimaryDataLinkLayer();
     TpUartDataLinkLayer* getSecondaryDataLinkLayer();
+    // Whether the IP network can carry KNXnet/IP, for PID_KNXNETIP_DEVICE_STATE.
+    void ipNetworkUp(bool up) { _ipNetworkUp = up; }
   protected:
     InterfaceObject* getInterfaceObject(uint8_t idx);
     InterfaceObject* getInterfaceObject(ObjectType objectType, uint16_t objectInstance);
@@ -38,5 +40,6 @@ class Bau091A : public BauSystemBCoupler, public ITpUartCallBacks, public DataLi
     CemiServer _cemiServer;
     CemiServerObject _cemiServerObject;
 #endif
+    bool _ipNetworkUp = true;
 };
 #endif

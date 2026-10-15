@@ -141,12 +141,59 @@ IpParameterObject::IpParameterObject(DeviceObject& deviceObject, Platform& platf
         // only), default 100 ms (range 20-100). A parameter, not a claim: ROUTING_BUSY is never sent.
         new DataProperty(PID_ROUTING_BUSY_WAIT_TIME, false, PDT_UNSIGNED_INT, 1, ReadLv3 | WriteLv0, (uint16_t)100),
 #endif
+        // 03_08_03 2.5.20 p.14, "shall be implemented by any KNXnet/IP Server", evented:
+        // Bau091A::loop() sends a change as M_PropInfo.ind. Appended so the index of
+        // every other property stays, and read-only so it enters neither the persisted
+        // image nor InterfaceObject::layoutTag(). (upstream e902864)
+        new CallbackProperty<IpParameterObject>(this, PID_KNXNETIP_DEVICE_STATE, false, PDT_UNSIGNED_CHAR, 1, ReadLv3 | WriteLv0,
+            [](IpParameterObject* io, uint16_t start, uint8_t count, uint8_t* data) -> uint8_t
+            {
+                if (start == 0)
+                {
+                    uint16_t currentNoOfElements = 1;
+                    pushWord(currentNoOfElements, data);
+                    return 1;
+                }
+                *data = io->_deviceState;
+                return 1;
+            }),
     };
     initializeProperties(sizeof(properties), properties);
 
     uint8_t defaultFriendlyName[30] = {0};
     strcpy((char*)defaultFriendlyName, "busware.de TUL");
     property(PID_FRIENDLY_NAME)->write(1, 30, defaultFriendlyName);
+}
+
+bool IpParameterObject::updateDeviceState(bool knxOperational, bool ipOperational)
+{
+    const uint32_t now = millis();
+    // 0 marks "no fault pending", so it is never stored as a time.
+    if (knxOperational)
+        _knxFaultSince = 0;
+    else if (_knxFaultSince == 0)
+        _knxFaultSince = now ? now : 1;
+    if (ipOperational)
+        _ipFaultSince = 0;
+    else if (_ipFaultSince == 0)
+        _ipFaultSince = now ? now : 1;
+
+    uint8_t state = 0;
+    if (_knxFaultSince != 0 && now - _knxFaultSince >= 5000)
+        state |= 0x01;   // KNX fault
+    if (_ipFaultSince != 0 && now - _ipFaultSince >= 5000)
+        state |= 0x02;   // IP fault
+
+    const bool changed = state != _deviceState;
+    _deviceState = state;
+    if (!_deviceStateSeeded)
+    {
+        // Nobody to tell at start-up, and the bus is briefly not usable until the
+        // transceiver is up.
+        _deviceStateSeeded = true;
+        return false;
+    }
+    return changed;
 }
 
 #ifdef KNX_TUNNELING

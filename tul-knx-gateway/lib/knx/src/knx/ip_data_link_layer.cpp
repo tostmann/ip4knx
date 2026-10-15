@@ -130,6 +130,13 @@ void IpDataLinkLayer::dataRequestToChannelId(CemiFrame& frame, uint8_t channelId
     sendFrameToTunnel(tun, frame);
 }
 
+void IpDataLinkLayer::dataRequestToAllDevMgmt(CemiFrame& frame)
+{
+    for(int i = 0; i < KNX_TUNNELING; i++)
+        if(tunnels[i].ChannelId != 0 && tunnels[i].IsConfig)
+            sendFrameToTunnel(&tunnels[i], frame);
+}
+
 void IpDataLinkLayer::dataRequestToTunnel(CemiFrame& frame)
 {
     // L_Data goes to tunnelling connections only: on a device management connection

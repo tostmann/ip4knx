@@ -29,8 +29,19 @@ class IpParameterObject : public InterfaceObject
     static bool isUsableTunnelAddress(uint16_t ownAddress, uint16_t address);
 #endif
 
+    // PID_KNXNETIP_DEVICE_STATE (03_08_03 2.5.20): bit 0 KNX fault, bit 1 IP fault,
+    // each set once its side has been unusable for 5 s and cleared when it is back
+    // (3.5.2, 3.5.3). Call once per loop pass; true when the value changed and an
+    // M_PropInfo.ind is due. The first call only sets it.
+    bool updateDeviceState(bool knxOperational, bool ipOperational);
+    uint8_t deviceState() const { return _deviceState; }
+
   private:
     DeviceObject& _deviceObject;
     Platform& _platform;
+    uint8_t _deviceState = 0;
+    uint32_t _knxFaultSince = 0;    // millis() the KNX side was first seen unusable, 0 = it is not
+    uint32_t _ipFaultSince = 0;
+    bool _deviceStateSeeded = false;
 };
 #endif
