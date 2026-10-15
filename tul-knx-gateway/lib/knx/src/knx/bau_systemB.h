@@ -108,6 +108,7 @@ class BauSystemB : protected BusAccessUnit
     void systemNetworkParameterReadLocalConfirm(Priority priority, HopCountType hopType, const SecurityControl &secCtrl, uint16_t objectType,
                                                 uint16_t propertyId, uint8_t* testInfo, uint16_t testInfoLength, bool status) override;
     void connectConfirm(uint16_t tsap) override;
+    void connectionClosed(uint16_t tsap) override;
 
     void nextRestartState();
     virtual void doMasterReset(EraseCode eraseCode, uint8_t channel);
