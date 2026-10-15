@@ -115,6 +115,14 @@ class BauSystemB : protected BusAccessUnit
     void connectionClosed(uint16_t tsap) override;
 
     void nextRestartState();
+    // A serial number read is answered after a random wait of up to maxWaitMs, and
+    // only if programming mode is still on then (03_03_07 3.2.6, 03_05_02 2.20.1.4).
+    // One answer waits per service; a repeat meanwhile is covered by it. (upstream
+    // 75931b7, without the IP system broadcast mode)
+    void deferNetworkParameterResponse(bool system, Priority priority, HopCountType hopType, const SecurityControl& secCtrl,
+                                       uint16_t objectType, uint16_t propertyId, const uint8_t* testInfo, uint16_t testInfoLength,
+                                       uint32_t maxWaitMs);
+    void loopNetworkParameterResponse();
     virtual void doMasterReset(EraseCode eraseCode, uint8_t channel);
 
     enum RestartState
@@ -136,4 +144,16 @@ class BauSystemB : protected BusAccessUnit
     BeforeRestartCallback _beforeRestart = 0;
     FunctionPropertyCallback _functionProperty = 0;
     FunctionPropertyCallback _functionPropertyState = 0;
+    struct PendingNetworkParameterResponse
+    {
+        bool pending = false;
+        uint32_t dueAt = 0;
+        Priority priority = SystemPriority;
+        HopCountType hopType = NetworkLayerParameter;
+        SecurityControl secCtrl = {};
+        uint16_t objectType = 0;
+        uint16_t propertyId = 0;
+        uint8_t testInfo[16] = {}; // the procedures send 1 or 2 octets
+        uint8_t testInfoLength = 0;
+    } _networkParameterResponse[2]; // A_NetworkParameter_Response, A_SystemNetworkParameter_Response
 };

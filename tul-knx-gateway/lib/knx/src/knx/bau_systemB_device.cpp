@@ -46,6 +46,7 @@ void BauSystemBDevice::loop()
     _transLayer.loop();
     sendNextGroupTelegram();
     nextRestartState();
+    loopNetworkParameterResponse();
 #ifdef USE_DATASECURE
     _appLayer.loop();
 #endif

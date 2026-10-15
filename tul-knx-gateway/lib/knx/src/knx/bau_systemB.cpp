@@ -777,6 +777,45 @@ void BauSystemB::nextRestartState()
     }
 }
 
+void BauSystemB::deferNetworkParameterResponse(bool system, Priority priority, HopCountType hopType, const SecurityControl& secCtrl,
+                                               uint16_t objectType, uint16_t propertyId, const uint8_t* testInfo, uint16_t testInfoLength,
+                                               uint32_t maxWaitMs)
+{
+    PendingNetworkParameterResponse& r = _networkParameterResponse[system ? 1 : 0];
+    if (r.pending || testInfoLength > sizeof(r.testInfo))
+        return;
+    r.dueAt = millis() + (uint32_t)random(0, (long)maxWaitMs + 1);
+    r.priority = priority;
+    r.hopType = hopType;
+    r.secCtrl = secCtrl;
+    r.objectType = objectType;
+    r.propertyId = propertyId;
+    memcpy(r.testInfo, testInfo, testInfoLength);
+    r.testInfoLength = (uint8_t)testInfoLength;
+    r.pending = true;
+}
+
+void BauSystemB::loopNetworkParameterResponse()
+{
+    const uint32_t now = millis();
+    for (uint8_t i = 0; i < 2; i++)
+    {
+        PendingNetworkParameterResponse& r = _networkParameterResponse[i];
+        if (!r.pending || (int32_t)(now - r.dueAt) < 0)
+            continue;
+        r.pending = false;
+        if (!_deviceObj.progMode())
+            continue;
+        const uint8_t* serialNumber = _deviceObj.propertyData(PID_SERIAL_NUMBER);
+        if (i == 1)
+            applicationLayer().systemNetworkParameterReadResponse(r.priority, r.hopType, r.secCtrl, r.objectType, r.propertyId,
+                                                                  r.testInfo, r.testInfoLength, (uint8_t*)serialNumber, 6);
+        else
+            applicationLayer().networkParameterReadResponse(r.priority, r.hopType, r.secCtrl, r.objectType, (uint8_t)r.propertyId,
+                                                            r.testInfo, r.testInfoLength, serialNumber, 6);
+    }
+}
+
 void BauSystemB::systemNetworkParameterReadIndication(Priority priority, HopCountType hopType, const SecurityControl &secCtrl, uint16_t objectType,
                                                       uint16_t propertyId, uint8_t* testInfo, uint16_t testInfoLength)
 {
@@ -791,9 +830,9 @@ void BauSystemB::systemNetworkParameterReadIndication(Priority priority, HopCoun
             // Only send a reply if programming mode is on
             if (_deviceObj.progMode() && (objectType == OT_DEVICE) && (propertyId == PID_SERIAL_NUMBER))
             {
-                // Send reply. testResult data is KNX serial number
-                applicationLayer().systemNetworkParameterReadResponse(priority, hopType, secCtrl, objectType, propertyId,
-                                                             testInfo, testInfoLength, (uint8_t*)_deviceObj.propertyData(PID_SERIAL_NUMBER), 6);
+                // The serial number, after a random wait of 0 to 1 s (03_05_02 2.20.1.4).
+                // It went out at once.
+                deferNetworkParameterResponse(true, priority, hopType, secCtrl, objectType, propertyId, testInfo, testInfoLength, 1000);
             }
         break;
 

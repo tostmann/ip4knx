@@ -31,6 +31,7 @@ void BauSystemBCoupler::loop()
 {
     _transLayer.loop();
     _memory.loop();
+    loopNetworkParameterResponse();
 
     // The basic restart M_Reset.req asked for, 200 ms on so its M_Reset.ind has left.
     // Pending changes are saved first; with none, nothing is written, so a client
