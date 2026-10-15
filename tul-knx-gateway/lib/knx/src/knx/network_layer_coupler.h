@@ -7,6 +7,13 @@
 #include "network_layer_entity.h"
 #include "network_layer.h"
 
+// Partners whose last frame to the coupler is kept with its interface, so the answer
+// leaves there; 4 octets each. A partner not held is answered by topology.
+// (upstream ff45eff)
+#ifndef KNX_COUPLER_ARRIVAL_SLOTS
+#define KNX_COUPLER_ARRIVAL_SLOTS 4
+#endif
+
 class DeviceObject;
 class RouterObject;
 
@@ -63,6 +70,11 @@ class NetworkLayerCoupler : public NetworkLayer
     void sendMsgHopCount(AckType ack, AddressType addrType, uint16_t destination, NPDU& npdu, Priority priority,
                       SystemBroadcast broadcastType, uint8_t sourceInterfaceIndex, uint16_t source);
 
+    // The interface a partner's last frame to this device arrived on, so the answer
+    // leaves there (03_03_03 p.13 b); kLocalIfIndex for a partner not held.
+    void noteArrival(uint16_t source, uint8_t srcIfIndex);
+    uint8_t arrivalInterface(uint16_t partner) const;
+
     void evaluateCouplerType();
     bool isGroupAddressInFilterTable(uint16_t groupAddress);
 #ifdef KNX_TUNNELING
@@ -77,4 +89,10 @@ class NetworkLayerCoupler : public NetworkLayer
 
     CouplerType _couplerType;
     uint16_t _currentAddress;
+
+    static_assert(KNX_COUPLER_ARRIVAL_SLOTS >= 1 && KNX_COUPLER_ARRIVAL_SLOTS <= 255, "KNX_COUPLER_ARRIVAL_SLOTS must be in 1..255");
+    // (address << 8) | (interface + 1), 0 = free. The oldest is replaced, a partner
+    // held already is refreshed in place. Main loop only.
+    uint32_t _arrivals[KNX_COUPLER_ARRIVAL_SLOTS] = {};
+    uint8_t _arrivalNext = 0;
 };
