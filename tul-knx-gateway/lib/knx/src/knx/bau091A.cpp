@@ -171,7 +171,7 @@ void Bau091A::loop()
 
     // Update KNX bus connection status for IpDataLinkLayer
     // This enables E_KNX_CONNECTION response when TP-UART is disconnected
-    _dlLayerPrimary.knxBusConnected(_dlLayerSecondary.isConnected());
+    _dlLayerPrimary.knxBusConnected(_dlLayerSecondary.busOperational());
 }
 
 TPAckType Bau091A::isAckRequired(uint16_t address, bool isGrpAddr)

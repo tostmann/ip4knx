@@ -48,6 +48,10 @@ namespace TPUart
         // ones that came while no frame was in flight. Since boot, for the status page.
         volatile uint32_t _orphanCons = 0;
         volatile uint32_t _orphanConsIdle = 0;
+        // State probes (U_STATE_REQ) written since the last octet the chip sent. A
+        // bus-powered chip falls silent with the bus, so this rising is how a cut
+        // shows. Raised by requestState() and cleared here, both under rxLock.
+        volatile uint8_t _unansweredProbes = 0;
         Receiver(DataLinkLayer &dll);
 
         void process();

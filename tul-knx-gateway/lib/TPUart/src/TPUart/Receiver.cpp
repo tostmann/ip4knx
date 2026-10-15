@@ -106,6 +106,7 @@ namespace TPUart
         if (value != -1)
         {
             _lastReceivedTime = millis();
+            _unansweredProbes = 0;
 #ifdef TPUART_CON_DIAG
             {
                 const unsigned long now = millis();

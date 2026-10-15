@@ -22,6 +22,7 @@ namespace TPUart
         if (_state != state) _dirty = true;
 
         _state = state;
+        _seen = true;
     }
 
     /*

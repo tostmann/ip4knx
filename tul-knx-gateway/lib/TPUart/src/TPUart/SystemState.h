@@ -8,6 +8,7 @@ namespace TPUart
       private:
         volatile char _state = 0;
         volatile bool _dirty = false;
+        volatile bool _seen = false;   // the chip has reported its state at least once
 
       public:
         bool v20v();
@@ -26,6 +27,7 @@ namespace TPUart
 
         void update(char state);
         bool dirty();
+        bool seen() { return _seen; }
     };
 
 } // namespace TPUart

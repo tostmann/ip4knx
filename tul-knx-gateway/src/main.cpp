@@ -1757,6 +1757,10 @@ void setup() {
             json += "\"type\":\"NCN5120/5121/5130\",";
             json += "\"state\":\"" + String(tp.getBcuStateInfo()) + "\",";
             json += "\"connected\":" + String(tp.isConnected() ? "true" : "false") + ",";
+            // The bus usable now: false 2-3 s after the chip falls silent, or without
+            // bus voltage. Tunnel clients get E_KNX_CONNECTION from it.
+            json += "\"bus_operational\":" + String(tp.busOperational() ? "true" : "false") + ",";
+            json += "\"unanswered_probes\":" + String(tp.unansweredProbes()) + ",";
             json += "\"baud\":" + String(tp.getBaudrate()) + ",";
             json += "\"mode\":\"" + String(sys.modeString()) + "\",";
             json += "\"v20v\":"  + String(sys.v20v()  ? "true" : "false") + ",";
@@ -1834,7 +1838,7 @@ void setup() {
             json += "\"tx_frames\":0,";
             json += "\"bus_load\":0,";
             json += "\"ncn\":{\"type\":\"NCN5120/5121/5130\",\"state\":\"NoLayer\","
-                    "\"connected\":false,\"baud\":0,\"mode\":\"-\","
+                    "\"connected\":false,\"bus_operational\":false,\"unanswered_probes\":0,\"baud\":0,\"mode\":\"-\","
                     "\"v20v\":false,\"vdd2\":false,\"vbus\":false,\"vfilt\":false,"
                     "\"xtal\":false,\"thermal_warning\":false,";
             json += "\"self_test\":\"" + String(ncnSelfTestText(ncnSelfTest)) + "\",";

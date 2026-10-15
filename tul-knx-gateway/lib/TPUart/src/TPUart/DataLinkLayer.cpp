@@ -680,6 +680,14 @@ namespace TPUart
 
         // printMessage("requestState");
 
+        // Counted before the write, so its answer cannot clear the count ahead of the
+        // probe, and per probe sent, so a stalled main loop is not taken for silence.
+        // Under rxLock, where the receive task clears it. (upstream bef29b0)
+        rxLock(true);
+        const uint8_t probes = _receiver._unansweredProbes;
+        if (probes < 255) _receiver._unansweredProbes = probes + 1;
+        rxUnlock();
+
         txLock(true);
         // Stamped before the write: a register read armed between here and the
         // answers would swallow them (see TPUART_REGREAD_QUIET_MS).
@@ -1219,6 +1227,22 @@ namespace TPUart
     bool DataLinkLayer::isConnected() const
     {
         return _bcuState == BCU_CONNECTED;
+    }
+
+    /*
+     * Whether the bus can be used now. isConnected() stays true for up to 30 s after
+     * the chip fell silent, and a reset sets it again at once, so a bus that is gone
+     * looked connected most of the time. This is false once the third state probe in
+     * a row goes out unanswered -- 2 to 3 s after the chip's last octet -- and while
+     * the chip reports no bus voltage. The count is cleared by a received octet only,
+     * not by a reset. (upstream bef29b0, adapted)
+     */
+    bool DataLinkLayer::busOperational()
+    {
+        if (_bcuState != BCU_CONNECTED) return false;
+        if (_receiver._unansweredProbes >= TPUART_BUS_SILENT_PROBES) return false;
+        if (!_systemState.seen()) return true;
+        return _systemState.vbus();
     }
 
     void DataLinkLayer::receivedState(char state)

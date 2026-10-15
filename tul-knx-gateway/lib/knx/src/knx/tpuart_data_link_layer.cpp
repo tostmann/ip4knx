@@ -37,8 +37,10 @@ bool TpUartDataLinkLayer::sendFrame(CemiFrame &cemiFrame)
         return false;
     }
 
-    // when not connected or in monitoring mode, discard the frame - silently
-    if (!_tpuart.isConnected() || _tpuart.isMonitoring())
+    // when the bus is not usable or in monitoring mode, discard the frame -
+    // silently. A frame taken while the chip was already silent waited for the next
+    // reset to be confirmed negatively, 30 s or more later.
+    if (!_tpuart.busOperational() || _tpuart.isMonitoring())
     {
         free(tpData);
         delete tpFrame; // not queued -> free (queue didn't take ownership)
@@ -195,6 +197,11 @@ TpUartDataLinkLayer::TpUartDataLinkLayer(DeviceObject &devObj,
 bool TpUartDataLinkLayer::isConnected()
 {
     return _tpuart.isConnected();
+}
+
+bool TpUartDataLinkLayer::busOperational()
+{
+    return _initialized && _tpuart.busOperational();
 }
 
 bool TpUartDataLinkLayer::isStopped()

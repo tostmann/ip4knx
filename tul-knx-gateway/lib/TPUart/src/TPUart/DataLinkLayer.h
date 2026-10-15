@@ -69,6 +69,12 @@
 #define TPUART_RESET_PENDING_TIMEOUT 1000
 #endif
 
+// busOperational() reports the bus gone when this many state probes in a row
+// (one a second) went out unanswered. 3 tolerates one lost answer.
+#ifndef TPUART_BUS_SILENT_PROBES
+#define TPUART_BUS_SILENT_PROBES 3
+#endif
+
 // Max KNX TP frame length (extended frame). RX reassembly bounds the per-frame
 // stack buffer against this so a corrupt/desynced length prefix cannot size a
 // huge VLA (stack smash). 263 = 9-byte L_Data_Extended header + 254-byte APDU.
@@ -297,6 +303,8 @@ namespace TPUart
         unsigned int desyncResets() const { return _desyncResets; }
         // Frames a reset threw away before their confirmation, since boot.
         unsigned int txDropped() const { return _txDropped; }
+        bool busOperational();
+        uint8_t unansweredProbes() const { return _receiver._unansweredProbes; }
         // Measurement counters since boot (status page); see Transmitter and Receiver.
         uint32_t ackParked() const { return _transmitter._ackParked; }
         uint32_t ackParkReplaced() const { return _transmitter._ackParkReplaced; }

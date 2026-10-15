@@ -47,6 +47,8 @@ class TpUartDataLinkLayer : public DataLinkLayer
     // Alias
     // void setFrameRepetition(uint8_t nack, uint8_t busy);
     bool isConnected();
+    // The bus usable now, as TPUart::DataLinkLayer::busOperational() sees it.
+    bool busOperational();
     bool isMonitoring();
     bool isStopped();
     bool isBusy();
