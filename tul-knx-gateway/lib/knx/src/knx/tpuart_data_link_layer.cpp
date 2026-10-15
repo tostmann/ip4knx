@@ -8,6 +8,7 @@
 #include "device_object.h"
 #include "platform.h"
 #include "tpuart_data_link_layer.h"
+#include <stdio.h>
 
 void TpUartDataLinkLayer::setRepetitions(uint8_t nack, uint8_t busy)
 {
@@ -50,7 +51,20 @@ bool TpUartDataLinkLayer::sendFrame(CemiFrame &cemiFrame)
     {
         free(tpData);
         delete tpFrame; // queue full, not taken -> free (else leak per dropped frame)
-        printMessage("Ignore frame because transmit queue is full!", true);
+        // At most one line a second: under a flood every refused frame logged one.
+        static uint32_t queueFullLoggedAt = 0;
+        static uint32_t queueFullSuppressed = 0;
+        if (millis() - queueFullLoggedAt >= 1000)
+        {
+            char msg[80];
+            snprintf(msg, sizeof msg, "Ignore frame because transmit queue is full! (+%lu more not shown)",
+                     (unsigned long)queueFullSuppressed);
+            printMessage(queueFullSuppressed ? msg : "Ignore frame because transmit queue is full!", true);
+            queueFullLoggedAt = millis();
+            queueFullSuppressed = 0;
+        }
+        else
+            queueFullSuppressed++;
         dataConReceived(cemiFrame, false);
         return false;
     }
