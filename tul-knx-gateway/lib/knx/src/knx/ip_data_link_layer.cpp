@@ -520,6 +520,9 @@ void IpDataLinkLayer::loop()
         
         case SearchRequest:
         {
+            if (len < KNXIP_HEADER_LEN + LEN_IPHPAI)
+                break;   // no HPAI to answer to
+
             KnxIpSearchRequest searchRequest(buffer, len);
             KnxIpSearchResponse searchResponse(_ipParameters, _deviceObject);
 
@@ -547,7 +550,7 @@ void IpDataLinkLayer::loop()
 
         case ConnectionStateRequest:
         {
-            loopHandleConnectionStateRequest(buffer, len);
+            loopHandleConnectionStateRequest(buffer, len, remoteAddr, remotePort);
             break;
         }
 
@@ -750,6 +753,12 @@ bool IpDataLinkLayer::tunnelAddressInUse(uint16_t pa)
 
 void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length, uint32_t& src_addr, uint16_t& src_port)
 {
+    // Header, control and data HPAI and at least the CRI's length and type octets:
+    // a shorter request would be read from what an earlier datagram left in the
+    // buffer. (upstream 41166b4, a7c01ad)
+    if (length < KNXIP_HEADER_LEN + 2 * LEN_IPHPAI + 2)
+        return;
+
     KnxIpConnectRequest connRequest(buffer, length);
 #ifdef KNX_LOG_TUNNELING
     println("Got Connect Request!");
@@ -1139,8 +1148,12 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
     _platform.sendBytesUniCast(tun->IpAddress, tun->PortCtrl, connRes.data(), connRes.totalLength());
 }
 
-void IpDataLinkLayer::loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t length)
+void IpDataLinkLayer::loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr, uint16_t src_port)
 {
+    // Header, channel id, reserved octet and the control HPAI.
+    if (length < KNXIP_HEADER_LEN + 2 + LEN_IPHPAI)
+        return;
+
     KnxIpStateRequest stateRequest(buffer, length);
 
     KnxIpTunnelConnection *tun = nullptr;
@@ -1167,12 +1180,25 @@ void IpDataLinkLayer::loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t
         return;
     }
 
+    // From the channel's client only -- the source of its connect or its control
+    // HPAI: anyone else could keep a dead channel open. Answered to the sender, not
+    // to the endpoint the datagram names. (upstream a8c34a0)
+    if (src_addr != tun->PeerAddress && src_addr != tun->IpAddress)
+    {
+        KnxIpStateResponse stateRes(stateRequest.channelId(), E_CONNECTION_ID);
+        _platform.sendBytesUniCast(src_addr, src_port, stateRes.data(), stateRes.totalLength());
+        return;
+    }
+
     if (!_knxBusConnected)
     {
 #ifdef KNX_LOG_TUNNELING
         print("KNX Bus connection lost for channel: ");
         println(tun->ChannelId);
 #endif
+        // The heartbeat itself came through: without the refresh every tunnel was
+        // closed by the server two minutes into a bus failure.
+        tun->lastHeartbeat = millis();
         KnxIpStateResponse stateRes(tun->ChannelId, E_KNX_CONNECTION);
         _platform.sendBytesUniCast(stateRequest.hpaiCtrl().ipAddress(), stateRequest.hpaiCtrl().ipPortNumber(), stateRes.data(), stateRes.totalLength());
         return;
@@ -1187,6 +1213,10 @@ void IpDataLinkLayer::loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t
 
 void IpDataLinkLayer::loopHandleDisconnectRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr)
 {
+    // Header, channel id, reserved octet and the control HPAI.
+    if (length < KNXIP_HEADER_LEN + 2 + LEN_IPHPAI)
+        return;
+
     KnxIpDisconnectRequest discReq(buffer, length);
             
 #ifdef KNX_LOG_TUNNELING
@@ -1231,6 +1261,9 @@ void IpDataLinkLayer::loopHandleDisconnectRequest(uint8_t* buffer, uint16_t leng
 
 void IpDataLinkLayer::loopHandleDescriptionRequest(uint8_t* buffer, uint16_t length)
 {
+    if (length < KNXIP_HEADER_LEN + LEN_IPHPAI)
+        return;   // no HPAI to answer to
+
     KnxIpDescriptionRequest descReq(buffer, length);
     KnxIpDescriptionResponse descRes(_ipParameters, _deviceObject);
     _platform.sendBytesUniCast(descReq.hpaiCtrl().ipAddress(), descReq.hpaiCtrl().ipPortNumber(), descRes.data(), descRes.totalLength());
@@ -1252,7 +1285,7 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
         // channelId 0 is the free-slot sentinel; guard it so a request carrying
-        // 0 cannot match a free tunnel. Falls through to E_CONNECTION_ID below.
+        // 0 cannot match a free tunnel.
         if(confReq.connectionHeader().channelId() != 0 && tunnels[i].ChannelId == confReq.connectionHeader().channelId())
         {
             tun = &tunnels[i];
@@ -1262,10 +1295,9 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
 
     if(tun == nullptr)
     {
-        print("Channel ID nicht gefunden: ");
-        println(confReq.connectionHeader().channelId());
-        KnxIpStateResponse stateRes(0x00, E_CONNECTION_ID);
-        _platform.sendBytesUniCast(0, 0, stateRes.data(), stateRes.totalLength());
+        // No answer: there is no connection to answer on (08_TSSH 4.2.10). The
+        // CONNECTIONSTATE_RESPONSE sent here before was not even the right service.
+        // (upstream a7c01ad)
         return;
     }
 
@@ -1275,22 +1307,18 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
         return;
     }
 
-    // Counted only: the sequence is not checked yet, a repeat runs again.
+    // 03_08_03 2.3.2 p.7: the expected sequence number is acknowledged and executed,
+    // the previous one again (its ack was lost) is acknowledged only, and any other is
+    // discarded without an ack. Before, a repeat ran a second time -- an M_PropWrite
+    // or M_Reset twice. (upstream 41166b4)
     const uint8_t confSequence = confReq.connectionHeader().sequenceCounter();
-    if (tun->SequenceCounter_DC >= 0)
+    const bool confRepeat = confSequence == tun->SequenceCounter_R;
+    if (!confRepeat && (uint8_t)(confSequence - 1) != tun->SequenceCounter_R)
     {
-        if (confSequence == (uint8_t)tun->SequenceCounter_DC)
-        {
-            tun->StatRepeats++;
-            _stats.configRxRepeats++;
-        }
-        else if (confSequence != (uint8_t)(tun->SequenceCounter_DC + 1))
-        {
-            tun->StatOutOfOrder++;
-            _stats.configRxOutOfOrder++;
-        }
+        tun->StatOutOfOrder++;
+        _stats.configRxOutOfOrder++;
+        return;
     }
-    tun->SequenceCounter_DC = confSequence;
 
     KnxIpTunnelingAck tunnAck;
     tunnAck.serviceTypeIdentifier(DeviceConfigurationAck);
@@ -1300,6 +1328,13 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
     tunnAck.connectionHeader().status(E_NO_ERROR);
     _platform.sendBytesUniCast(tun->IpAddress, tun->PortData, tunnAck.data(), tunnAck.totalLength());
 
+    if (confRepeat)
+    {
+        tun->StatRepeats++;
+        _stats.configRxRepeats++;
+        return;
+    }
+    tun->SequenceCounter_R = confSequence;
     tun->lastHeartbeat = millis();
 
     // A device configuration request carries local device management services
@@ -1331,7 +1366,7 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
     for(int i = 0; i < KNX_TUNNELING; i++)
     {
         // channelId 0 is the free-slot sentinel; guard it so a request carrying
-        // 0 cannot match a free tunnel. Falls through to E_CONNECTION_ID below.
+        // 0 cannot match a free tunnel.
         if(tunnReq.connectionHeader().channelId() != 0 && tunnels[i].ChannelId == tunnReq.connectionHeader().channelId())
         {
             tun = &tunnels[i];
@@ -1345,8 +1380,9 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
         print("Channel ID nicht gefunden: ");
         println(tunnReq.connectionHeader().channelId());
 #endif
-        KnxIpStateResponse stateRes(0x00, E_CONNECTION_ID);
-        _platform.sendBytesUniCast(0, 0, stateRes.data(), stateRes.totalLength());
+        // No answer: there is no connection to answer on, and the
+        // CONNECTIONSTATE_RESPONSE sent here before was the wrong service. (upstream
+        // a7c01ad)
         return;
     }
 
@@ -1395,6 +1431,8 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
     _platform.sendBytesUniCast(tun->IpAddress, tun->PortData, tunnAck.data(), tunnAck.totalLength());
 
     tun->SequenceCounter_R = tunnReq.connectionHeader().sequenceCounter();
+    // The heartbeat timeout runs from the last correctly received frame (03_08_02 5.4).
+    tun->lastHeartbeat = millis();
 
     // A device management connection has no tunnel address to send under: its
     // connect response carries none.
