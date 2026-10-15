@@ -71,10 +71,20 @@ bool IpDataLinkLayer::sendFrame(CemiFrame& frame)
         // only branch returning false WITHOUT one -> emit the (negative) con to keep the contract
         // uniform. Safe: a routed frame's foreign-source con is discarded at NetworkLayerCoupler,
         // no re-queue/retransmit (isSendLimitReached is a pure sliding-window counter).
+        _stats.routingLimitDrops++;
         dataConReceived(frame, false);
         return false;
     }
     bool success = sendBytes(packet.data(), packet.totalLength());
+    _stats.routingTx++;
+    const uint32_t second = millis() / 1000;
+    if (second != _routingSecond)
+    {
+        _routingSecond = second;
+        _routingInSecond = 0;
+    }
+    if (++_routingInSecond > _stats.routingPeakPerSecond)
+        _stats.routingPeakPerSecond = _routingInSecond;
 #ifdef KNX_ACTIVITYCALLBACK
     if(_dllcb)
         _dllcb->activity((_netIndex << KNX_ACTIVITYCALLBACK_NET) | (KNX_ACTIVITYCALLBACK_DIR_SEND << KNX_ACTIVITYCALLBACK_DIR));
@@ -285,10 +295,65 @@ void IpDataLinkLayer::sendFrameToTunnel(KnxIpTunnelConnection *tunnel, CemiFrame
     req.connectionHeader().length(LEN_CH);
     req.connectionHeader().channelId(tunnel->ChannelId);
 
-    if(frame.messageCode() != L_data_req && frame.messageCode() != L_data_con && frame.messageCode() != L_data_ind)
+    const bool config = frame.messageCode() != L_data_req && frame.messageCode() != L_data_con && frame.messageCode() != L_data_ind;
+    if(config)
         req.serviceTypeIdentifier(DeviceConfigurationRequest);
 
+    // Timed until its ack arrives (status page); a newer request replaces one
+    // still waiting.
+    tunnel->LastSentSeq = req.connectionHeader().sequenceCounter();
+    tunnel->LastSentAt = millis();
+    tunnel->AckPending = true;
+    tunnel->StatRequests++;
+    if (config)
+        _stats.configRequests++;
+    else
+        _stats.tunnelRequests++;
+
     _platform.sendBytesUniCast(tunnel->IpAddress, tunnel->PortData, req.data(), req.totalLength());
+}
+
+// Counted for the status page only: nothing is resent yet, so an ack changes no
+// state of the channel.
+void IpDataLinkLayer::loopHandleAck(uint8_t* buffer, uint16_t length, bool config)
+{
+    if (length < KNXIP_HEADER_LEN + LEN_CH)
+        return;
+
+    // DEVICE_CONFIGURATION_ACK has the same layout as TUNNELLING_ACK.
+    KnxIpTunnelingAck ack(buffer, length);
+    const uint8_t channelId = ack.connectionHeader().channelId();
+    KnxIpTunnelConnection* tun = nullptr;
+    for (int i = 0; i < KNX_TUNNELING; i++)
+    {
+        if (channelId != 0 && tunnels[i].ChannelId == channelId)
+        {
+            tun = &tunnels[i];
+            break;
+        }
+    }
+
+    if (tun == nullptr)
+    {
+        _stats.ackUnknownChannel++;
+        return;
+    }
+
+    if (ack.connectionHeader().status() != E_NO_ERROR)
+        _stats.ackError++;
+    if (config)
+        _stats.configAcks++;
+    else
+        _stats.tunnelAcks++;
+    tun->StatAcks++;
+
+    if (tun->AckPending && ack.connectionHeader().sequenceCounter() == tun->LastSentSeq)
+    {
+        const uint32_t rtt = millis() - tun->LastSentAt;
+        if (rtt > _stats.ackRttMaxMs)
+            _stats.ackRttMaxMs = rtt;
+        tun->AckPending = false;
+    }
 }
 
 bool IpDataLinkLayer::isConfigChannel(uint8_t channelId)
@@ -554,18 +619,30 @@ void IpDataLinkLayer::loop()
 
         case DeviceConfigurationAck:
         {
-            //TOOD nothing to do now
-            //println("got Ack");
+            loopHandleAck(buffer, len, true);
             break;
         }
 
         case TunnelingAck:
         {
-            //TOOD nothing to do now
-            //println("got Ack");
+            loopHandleAck(buffer, len, false);
             break;
         }
 #endif
+        // Flow control of other routers: counted, not acted on yet, and without
+        // the log line every unknown service gets (upstream 3d7ab47).
+        case RoutingLostMessage:
+        {
+            _stats.routingRxLostMessage++;
+            break;
+        }
+
+        case RoutingBusy:
+        {
+            _stats.routingRxBusy++;
+            break;
+        }
+
         default:
             print("Unhandled service identifier: ");
             println(code, HEX);
@@ -1240,6 +1317,23 @@ void IpDataLinkLayer::loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint
         return;
     }
 
+    // Counted only: the sequence is not checked yet, a repeat runs again.
+    const uint8_t confSequence = confReq.connectionHeader().sequenceCounter();
+    if (tun->SequenceCounter_DC >= 0)
+    {
+        if (confSequence == (uint8_t)tun->SequenceCounter_DC)
+        {
+            tun->StatRepeats++;
+            _stats.configRxRepeats++;
+        }
+        else if (confSequence != (uint8_t)(tun->SequenceCounter_DC + 1))
+        {
+            tun->StatOutOfOrder++;
+            _stats.configRxOutOfOrder++;
+        }
+    }
+    tun->SequenceCounter_DC = confSequence;
+
     KnxIpTunnelingAck tunnAck;
     tunnAck.serviceTypeIdentifier(DeviceConfigurationAck);
     tunnAck.connectionHeader().length(4);
@@ -1307,6 +1401,8 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
     uint8_t sequence = tunnReq.connectionHeader().sequenceCounter();
     if(sequence == tun->SequenceCounter_R)
     {
+        tun->StatRepeats++;
+        _stats.tunnelRxRepeats++;
 #ifdef KNX_LOG_TUNNELING
         print("Received SequenceCounter again: ");
         println(tunnReq.connectionHeader().sequenceCounter());
@@ -1321,6 +1417,8 @@ void IpDataLinkLayer::loopHandleTunnelingRequest(uint8_t* buffer, uint16_t lengt
         _platform.sendBytesUniCast(tun->IpAddress, tun->PortData, tunnAck.data(), tunnAck.totalLength());
         return;
     } else if((uint8_t)(sequence - 1) != tun->SequenceCounter_R) {
+        tun->StatOutOfOrder++;
+        _stats.tunnelRxOutOfOrder++;
 #ifdef KNX_LOG_TUNNELING
         print("Wrong SequenceCounter: got ");
         print(tunnReq.connectionHeader().sequenceCounter());

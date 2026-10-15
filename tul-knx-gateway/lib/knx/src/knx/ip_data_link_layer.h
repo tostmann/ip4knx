@@ -10,6 +10,27 @@
 #include "knx_ip_tunnel_connection.h"
 #include "service_families.h"
 
+// Counted since boot for the status page; none of them changes behaviour.
+struct KnxIpStats
+{
+    uint32_t routingTx = 0;            // ROUTING_INDICATIONs sent
+    uint32_t routingLimitDrops = 0;    // ROUTING_INDICATIONs the send limit dropped
+    uint32_t routingPeakPerSecond = 0; // most sent within one second (calendar seconds)
+    uint32_t routingRxLostMessage = 0; // ROUTING_LOST_MESSAGEs received
+    uint32_t routingRxBusy = 0;        // ROUTING_BUSYs received
+    uint32_t tunnelRequests = 0;       // TUNNELLING_REQUESTs sent to clients
+    uint32_t tunnelAcks = 0;           // TUNNELLING_ACKs received from them
+    uint32_t configRequests = 0;       // DEVICE_CONFIGURATION_REQUESTs sent
+    uint32_t configAcks = 0;           // DEVICE_CONFIGURATION_ACKs received
+    uint32_t ackUnknownChannel = 0;    // acks for no open channel
+    uint32_t ackError = 0;             // acks with a status other than E_NO_ERROR
+    uint32_t ackRttMaxMs = 0;          // longest request-to-ack time
+    uint32_t tunnelRxRepeats = 0;      // TUNNELLING_REQUESTs received again
+    uint32_t tunnelRxOutOfOrder = 0;   // TUNNELLING_REQUESTs with an unexpected sequence
+    uint32_t configRxRepeats = 0;      // DEVICE_CONFIGURATION_REQUESTs received again
+    uint32_t configRxOutOfOrder = 0;   // DEVICE_CONFIGURATION_REQUESTs with an unexpected sequence
+};
+
 class IpDataLinkLayer : public DataLinkLayer
 {
     using DataLinkLayer::_deviceObject;
@@ -38,9 +59,14 @@ class IpDataLinkLayer : public DataLinkLayer
     // holds it or not (see refreshDefendedTunnelAddresses).
     bool isDefendedTunnelAddress(uint16_t address) const;
     uint8_t getActiveTunnelCount() const;
+    const KnxIpTunnelConnection* tunnelSlots() const { return tunnels; }
 #endif
+    const KnxIpStats& stats() const { return _stats; }
 
   private:
+    KnxIpStats _stats;
+    uint32_t _routingSecond = 0;       // the second _routingInSecond counts
+    uint32_t _routingInSecond = 0;
     bool _enabled = false;
     bool _knxBusConnected = false;  // Track KNX bus connection status
     uint8_t _frameCount[10] = {0,0,0,0,0,0,0,0,0,0};
@@ -57,6 +83,7 @@ class IpDataLinkLayer : public DataLinkLayer
     void loopHandleDescriptionRequest(uint8_t* buffer, uint16_t length);
     void loopHandleDeviceConfigurationRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr);
     void loopHandleTunnelingRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr);
+    void loopHandleAck(uint8_t* buffer, uint16_t length, bool config);
 #endif
 #if KNX_SERVICE_FAMILY_CORE >= 2
     void loopHandleSearchRequestExtended(uint8_t* buffer, uint16_t length);

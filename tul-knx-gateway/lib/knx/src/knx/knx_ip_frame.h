@@ -31,6 +31,7 @@ enum KnxIpServiceType
     TunnelingAck = 0x421,
     RoutingIndication = 0x530,
     RoutingLostMessage = 0x531,
+    RoutingBusy = 0x532,
 };
 
 class KnxIpFrame

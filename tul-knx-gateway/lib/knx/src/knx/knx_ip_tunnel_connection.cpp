@@ -22,4 +22,12 @@ void KnxIpTunnelConnection::Reset()
     SequenceCounter_R = 255;
     IndividualAddress = 0;
     IsConfig = false;
+    StatRequests = 0;
+    StatAcks = 0;
+    StatRepeats = 0;
+    StatOutOfOrder = 0;
+    LastSentSeq = 0;
+    LastSentAt = 0;
+    AckPending = false;
+    SequenceCounter_DC = -1;
 }

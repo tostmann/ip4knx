@@ -43,6 +43,8 @@ public:
     // KNXnet/IP datagrams dropped since boot because the receive buffer was
     // full or the datagram was longer than the stack reads.
     uint32_t udpRxDropped() const { return _udpRxDropped; }
+    // Most datagrams waiting in the receive buffer at once since boot.
+    uint32_t udpRxBacklogPeak() const { return _udpRxBacklogPeak; }
 
     //memory
     uint8_t* getEepromBuffer(uint32_t size);
@@ -63,6 +65,11 @@ private:
     ip4_addr_t _udpGroup = {};
     RingbufHandle_t _udpRx = nullptr;
     volatile uint32_t _udpRxDropped = 0;   // written by udpReceive() (tcpip thread), read in loop()
+    // Datagrams put into and taken out of the receive buffer: each is written on
+    // one side only, so their difference is the backlog without a shared counter.
+    volatile uint32_t _udpRxQueued = 0;    // udpReceive()
+    volatile uint32_t _udpRxTaken = 0;     // readBytesMultiCast(), closeMultiCast()
+    volatile uint32_t _udpRxBacklogPeak = 0;
     uint32_t _udpRxDroppedReported = 0;
     uint32_t _udpRxReportedAt = 0;
     // int8_t _rxPin = -1;

@@ -225,6 +225,10 @@ void Esp32Platform::udpReceive(void* arg, struct udp_pcb* pcb, struct pbuf* p, c
             hdr->len = p->tot_len;
             pbuf_copy_partial(p, (uint8_t*)item + sizeof(UdpRxHeader), p->tot_len, 0);
             xRingbufferSendComplete(self->_udpRx, item);
+            self->_udpRxQueued = self->_udpRxQueued + 1;
+            const uint32_t backlog = self->_udpRxQueued - self->_udpRxTaken;
+            if (backlog > self->_udpRxBacklogPeak)
+                self->_udpRxBacklogPeak = backlog;
         }
         else
             self->_udpRxDropped = self->_udpRxDropped + 1;   // reported from readBytesMultiCast(), not from here
@@ -302,7 +306,10 @@ void Esp32Platform::closeMultiCast()
         size_t size = 0;
         void* item;
         while ((item = xRingbufferReceive(_udpRx, &size, 0)) != nullptr)
+        {
             vRingbufferReturnItem(_udpRx, item);
+            _udpRxTaken = _udpRxTaken + 1;
+        }
     }
 }
 
@@ -351,6 +358,7 @@ int Esp32Platform::readBytesMultiCast(uint8_t * buffer, uint16_t maxLen, uint32_
         src_port = hdr.port;
     }
     vRingbufferReturnItem(_udpRx, item);
+    _udpRxTaken = _udpRxTaken + 1;
 
     // print("Remote IP: ");
     // print(_remoteIP.toString().c_str());
