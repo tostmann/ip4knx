@@ -49,7 +49,7 @@ namespace TPUart
             bool write(char value) override
             {
                 if (!_running) return false;
-                return !_serial.write(value);
+                return _serial.write(value) == 1;
             };
 
             int read() override
