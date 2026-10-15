@@ -94,9 +94,6 @@ void DataLinkLayer::dataRequestFromTunnel(CemiFrame& frame)
     if (mediumType() == DptMedium::KNX_TP1 && frame.valid() && frame.npdu().octetCount() <= 15)
         frame.frameType(StandardFrame);
 
-    // Send to local stack ( => cemiServer for potential other tunnel and network layer for routing)
-    frameReceived(frame);
-
 #ifdef KNX_TUNNELING
     // TunnelOpti
     // Optimize performance when receiving unicast data over tunnel wich is not meant to be used on the physical KNX-TP line
@@ -109,23 +106,34 @@ void DataLinkLayer::dataRequestFromTunnel(CemiFrame& frame)
     // Upstream OpenKNX/knx 83afcad (2025-10-27): the two PA-class suppressions
     // are not KNX-standard compliant — gated them behind opt-in defines.
 
+    bool local = false;
     if(frame.addressType() == AddressType::IndividualAddress)
     {
-        bool local = frame.destinationAddress() == _deviceObject.individualAddress();
+        local = frame.destinationAddress() == _deviceObject.individualAddress();
 #ifdef KNX_TUNNELING_STRICT_TOPOLOGY
         local = local || isRoutedPA(frame.destinationAddress());
 #endif
 #ifdef KNX_TUNNELING_NO_TUNNEL_PA_ON_TP
         local = local || isTunnelingPA(frame.destinationAddress());
 #endif
-        if(local)
-        {
-            frame.confirm(ConfirmNoError);
-            _cemiServer->dataConfirmationToTunnel(frame);
-            return;
-        }
     }
+    // A frame handled here is confirmed before the local stack runs: an answer it
+    // produces then reaches the client after the L_Data.con of the request, as from a
+    // device on the line. Clients wait for that con before they accept the answer.
+    // (upstream 1b01e5e)
+    if(local)
+    {
+        frame.confirm(ConfirmNoError);
+        _cemiServer->dataConfirmationToTunnel(frame);
+    }
+#endif
 
+    // Send to local stack ( => cemiServer for potential other tunnel and network layer for routing)
+    frameReceived(frame);
+
+#ifdef KNX_TUNNELING
+    if(local)
+        return;
 #endif
 
     // Send to KNX medium; the L_Data.con follows from dataConReceived()
