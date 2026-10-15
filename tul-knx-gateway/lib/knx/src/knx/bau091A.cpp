@@ -186,6 +186,18 @@ void Bau091A::loop()
     }
 }
 
+// 03_02_06 4.3.5.3.2: the serial number by A_NetworkParameter_Read in broadcast mode,
+// in programming mode only. It was logged as an unhandled broadcast and not answered.
+// (upstream 0b31ba3)
+void Bau091A::networkParameterReadIndication(Priority priority, HopCountType hopType, const SecurityControl &secCtrl, uint16_t objectType,
+                                             uint8_t propertyId, const uint8_t* testInfo, uint16_t testInfoLength)
+{
+    if (objectType != OT_DEVICE || propertyId != PID_SERIAL_NUMBER || testInfoLength < 1 || testInfo[0] != 0x01 || !_deviceObj.progMode())
+        return;
+    applicationLayer().networkParameterReadResponse(priority, hopType, secCtrl, objectType, propertyId, testInfo, testInfoLength,
+                                                    _deviceObj.propertyData(PID_SERIAL_NUMBER), 6);
+}
+
 TPAckType Bau091A::isAckRequired(uint16_t address, bool isGrpAddr)
 {
     //only called from TpUartDataLinkLayer

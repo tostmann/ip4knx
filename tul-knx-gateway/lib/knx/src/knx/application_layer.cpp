@@ -154,6 +154,15 @@ void ApplicationLayer::dataBroadcastIndication(HopCountType hopType, Priority pr
             _bau.individualAddressSerialNumberWriteIndication(priority, hopType, secCtrl, newIndividualAddress, knxSerialNumber);
             break;
         }
+        case NetworkParameterRead:
+        {
+            // 03_03_07 3.2.6: object type (2 octets), PID (1), test info (1 or more).
+            if (apdu.length() < 5) break; // APCI + 4
+            uint16_t objectType;
+            popWord(objectType, data + 1);
+            _bau.networkParameterReadIndication(priority, hopType, secCtrl, objectType, data[3], data + 4, apdu.length() - 4);
+            break;
+        }
         default:
             print("Broadcast-indication: unhandled APDU-Type: ");
             println(apdu.type());
@@ -201,6 +210,8 @@ void ApplicationLayer::dataBroadcastConfirm(AckType ack, HopCountType hopType, P
             _bau.individualAddressSerialNumberWriteLocalConfirm(ack, hopType, secCtrl, data + 1, newAddress, status);
             break;
         }
+        case NetworkParameterResponse:
+            break; // nothing waits for it
         default:
             print("Broadcast-confirm: unhandled APDU-Type: ");
             println(apdu.type());
@@ -535,6 +546,26 @@ void ApplicationLayer::restartResponse(AckType ack, Priority priority, HopCountT
 }
 
 //TODO: ApplicationLayer::systemNetworkParameterReadRequest()
+// 03_03_07 3.2.6: object type, PID, the test info of the request, the test result;
+// always in broadcast mode here. (upstream 0b31ba3)
+void ApplicationLayer::networkParameterReadResponse(Priority priority, HopCountType hopType, const SecurityControl& secCtrl, uint16_t objectType,
+                                                    uint8_t propertyId, const uint8_t* testInfo, uint16_t testInfoLength,
+                                                    const uint8_t* testResult, uint16_t testResultLength)
+{
+    if (testInfoLength + testResultLength > MAX_APDU_OCTET_COUNT - 4)
+        return;
+
+    CemiFrame frame(1 + 3 + testInfoLength + testResultLength);
+    APDU& apdu = frame.apdu();
+    apdu.type(NetworkParameterResponse);
+    uint8_t* data = apdu.data() + 1;
+    pushWord(objectType, data);
+    data[2] = propertyId;
+    memcpy(data + 3, testInfo, testInfoLength);
+    memcpy(data + 3 + testInfoLength, testResult, testResultLength);
+    dataBroadcastRequest(AckDontCare, hopType, SystemPriority, apdu, secCtrl);
+}
+
 void ApplicationLayer::systemNetworkParameterReadResponse(Priority priority, HopCountType hopType, const SecurityControl &secCtrl,
                                                           uint16_t objectType, uint16_t propertyId,
                                                           uint8_t* testInfo, uint16_t testInfoLength,

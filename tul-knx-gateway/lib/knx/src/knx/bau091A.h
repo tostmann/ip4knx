@@ -32,6 +32,9 @@ class Bau091A : public BauSystemBCoupler, public ITpUartCallBacks, public DataLi
     // For TP1 only
     TPAckType isAckRequired(uint16_t address, bool isGrpAddr) override;
 
+    void networkParameterReadIndication(Priority priority, HopCountType hopType, const SecurityControl &secCtrl, uint16_t objectType,
+                                        uint8_t propertyId, const uint8_t* testInfo, uint16_t testInfoLength) override;
+
     void doMasterReset(EraseCode eraseCode, uint8_t channel) override;
   private:
     KnxIpCounters _counters; // first: the parameter object and both data link layers keep its address
