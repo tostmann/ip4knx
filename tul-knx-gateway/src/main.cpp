@@ -10,6 +10,7 @@
 #endif
 #include "nvs_flash.h"
 #include "busware/usb_reset_guard.h"
+#include <esp_system.h>   // esp_reset_reason()
 
 #include <ESPAsyncWebServer.h>
 #include <ESPmDNS.h>
@@ -906,6 +907,28 @@ static void capTxPower(const char *why) {
 }
 #endif
 
+// Reset reason for the boot log and /api/status.
+static const char *resetReasonName(esp_reset_reason_t r) {
+    switch (r) {
+        case ESP_RST_POWERON:    return "poweron";
+        case ESP_RST_EXT:        return "ext";
+        case ESP_RST_SW:         return "sw";
+        case ESP_RST_PANIC:      return "panic";
+        case ESP_RST_INT_WDT:    return "int_wdt";
+        case ESP_RST_TASK_WDT:   return "task_wdt";
+        case ESP_RST_WDT:        return "wdt";
+        case ESP_RST_DEEPSLEEP:  return "deepsleep";
+        case ESP_RST_BROWNOUT:   return "brownout";
+        case ESP_RST_SDIO:       return "sdio";
+        case ESP_RST_USB:        return "usb";
+        case ESP_RST_JTAG:       return "jtag";
+        case ESP_RST_EFUSE:      return "efuse";
+        case ESP_RST_PWR_GLITCH: return "pwr_glitch";
+        case ESP_RST_CPU_LOCKUP: return "cpu_lockup";
+        default:                 return "unknown";
+    }
+}
+
 void setup() {
     // First, before anything starts WiFi. A reset over the USB-Serial-JTAG
     // port (a flasher's hard reset, a terminal toggling DTR/RTS) leaves the
@@ -960,6 +983,8 @@ void setup() {
 #endif
 
     Serial.println("Starting TUL KNX/IP Gateway");
+    Serial.printf("Reset reason: %s%s\n", resetReasonName(esp_reset_reason()),
+                  busware_usb_reset_guard_was_usb() ? " (USB reset guard restart)" : "");
 #ifdef BW_IMG_VARIANT
     Serial.println(bwImgMarker);
 #endif
@@ -1642,6 +1667,10 @@ void setup() {
         snprintf(upStr, sizeof(upStr), "%lud %02dh %02dm %02ds", (unsigned long)d, h, m, s);
         
         json += "\"uptime\":\"" + String(upStr) + "\",";
+        // usb_guard_restart: the chip was reset over the USB port and the USB
+        // reset guard restarted it once more (reset reads "sw" then).
+        json += "\"boot\":{\"reset\":\"" + String(resetReasonName(esp_reset_reason())) +
+                "\",\"usb_guard_restart\":" + String(busware_usb_reset_guard_was_usb() ? "true" : "false") + "},";
         json += "\"is_ap_mode\":" + String(isApMode ? "true" : "false") + ",";
         if (isApMode) {
             String mac = WiFi.softAPmacAddress();
