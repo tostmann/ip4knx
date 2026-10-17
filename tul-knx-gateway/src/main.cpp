@@ -9,6 +9,7 @@
 #include "ImprovWiFiLibrary.h"
 #endif
 #include "nvs_flash.h"
+#include "busware/usb_reset_guard.h"
 
 #include <ESPAsyncWebServer.h>
 #include <ESPmDNS.h>
@@ -906,6 +907,15 @@ static void capTxPower(const char *why) {
 #endif
 
 void setup() {
+    // First, before anything starts WiFi. A reset over the USB-Serial-JTAG
+    // port (a flasher's hard reset, a terminal toggling DTR/RTS) leaves the
+    // modem as it was, and after a few percent of such resets the station
+    // found no AP until the next reset. The guard then restarts once by
+    // software, which resets the modem too — but not while an updated image
+    // awaits its confirmation (rollback gate in loop()): the bootloader would
+    // take that restart as a failed boot and roll the update back.
+    busware_usb_reset_guard();
+
     // Bus-powered TULX32 hat <40 mA Bus-Strom-Budget (R6=10kΩ FANIN auf
     // NCN5130). 80 MHz CPU ist Kompromiss: 50% Strom-Reduktion vs 160 MHz
     // Default, aber UART-Baudrate-Init bleibt zuverlässig.
