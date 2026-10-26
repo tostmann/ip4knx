@@ -167,3 +167,6 @@ python3 scripts/test_tunnel_source.py --host 192.168.1.50
 
 ## 🤝 Credits
 This project heavily relies on the [OpenKNX](https://github.com/OpenKNX) library stack, which provides the robust KNX TP1 and IP protocol implementation.
+
+## 📄 License
+ip4knx is licensed under the GNU General Public License v3.0, see [LICENSE](LICENSE). The two OpenKNX libraries it builds on, the `knx` stack and `TPUart` (patched and vendored in `tul-knx-gateway/lib/`), are GPL-3.0 as well.
