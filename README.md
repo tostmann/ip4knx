@@ -1,6 +1,9 @@
-# ip4knx - Universal KNXnet/IP Gateway
+# ip4knx - KNXnet/IP firmware for the busware TUL sticks
 
-Custom firmware to turn the busware **TUL** (ESP32-C3) and **TUL32** (ESP32-C6) USB sticks and the bus-powered **TULX32** (ESP32-C6) into a fully featured KNXnet/IP Routing and Tunneling Gateway.
+Open-source firmware for the busware **TUL** (ESP32-C3) and **TUL32** (ESP32-C6) USB sticks and the bus-powered **TULX32** (ESP32-C6). Installed on a stick, it provides KNXnet/IP tunneling and routing between the KNX TP1 bus and the IP network.
+
+> [!IMPORTANT]
+> **Not an end product for end users!** busware sells the TUL sticks as a hardware platform for your own projects. ip4knx is not part of that product: you install it yourself, and busware provides no support for it. The firmware is meant as inspiration for the community — testers are wanted, and pull requests are always welcome.
 
 Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly optimized and patched for the specific hardware requirements of the NCN5130 transceiver and modern ESP32 Arduino Core 3.x frameworks.
 
@@ -20,7 +23,7 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **NCN5130 Boot Self-Test:** Verifies the SPI/UART link to the transceiver, all power rails (V20V/VDD2/VBUS/VFILT), XTAL, and thermal status on every boot. Visible on the dashboard and in `/api/status`.
 *   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, NCN transceiver state, OTA partition + state, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
 *   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`. Both interfaces additionally announce a DHCP hostname of the form `tul-<MAC suffix>` — the same suffix the fallback AP carries — so a stick is recognisable in the router's lease list instead of showing up under a generic platform default.
-*   **Hardware Watchdog:** Active Task Watchdog Timer (TWDT) and Wi-Fi connection monitoring for ultimate stability.
+*   **Hardware Watchdog:** Active Task Watchdog Timer (TWDT) and Wi-Fi connection monitoring.
 *   **KNX-Stack Robustness:** Inbound KNXnet/IP frames are validated against malformed and truncated cEMI before they reach the TP bus, and the transmit path fails safe under heap/allocation pressure — hardening adopted from upstream OpenKNX robustness work. The management plane is bounded as well: property, memory and function-property services reject short APDUs before any length-derived read, refuse writes that claim more element data than the payload carries, and clamp every response against both its frame buffer and the NVM size.
 *   **Build Versioning:** Git hash and build number displayed in serial output and `/api/status` JSON.
 
@@ -86,7 +89,7 @@ This project uses PlatformIO. The required `knx` and `tpuart` libraries are vend
    ```
 
 ## ⚙️ Initial Setup
-The firmware is designed for a seamless "Installer Mode" experience on the construction site:
+For the first setup over Wi-Fi, the firmware offers an "Installer Mode":
 
 1. **Plug the TUL stick into a USB port or power bank.**
 2. **Connect to the Gateway:** If no Wi-Fi credentials are saved (factory state), the gateway will immediately broadcast an open Wi-Fi network named `TUL AP <MAC>`. Connect to this network with your smartphone or laptop.
@@ -117,7 +120,7 @@ The built-in Home Assistant KNX integration connects to ip4knx directly through 
 
 ## 🏠 Connecting FHEM (without knxd)
 
-ip4knx is a full KNXnet/IP gateway, so [FHEM](https://fhem.de/) can talk to it **directly via its `KNXIO` module — no `knxd` required.** See **[HowToFHEM.md](HowToFHEM.md)** for the step-by-step tunneling (Mode H) / routing (Mode M) setup and verification.
+ip4knx speaks KNXnet/IP tunneling and routing, so [FHEM](https://fhem.de/) can talk to it **directly via its `KNXIO` module — no `knxd` required.** See **[HowToFHEM.md](HowToFHEM.md)** for the step-by-step tunneling (Mode H) / routing (Mode M) setup and verification.
 
 ## 🔧 Utilities
 
