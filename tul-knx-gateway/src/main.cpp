@@ -263,6 +263,11 @@ bool isApMode = false;
 // WiFi). Onboarding (no creds) and button-started APs leave this false: they
 // are deliberate and must not be auto-exited when a stale STA re-associates.
 bool apModeIsFallback = false;
+// True only for the onboarding AP setup() opens when it found neither stored
+// credentials nor a cable with an address. A cable that gets its address later
+// makes it pointless, so loop() closes it then (W5500 build) — unless somebody
+// is connected to it.
+bool apModeIsOnboarding = false;
 // Authorizes /api/wifi/connect while in AP mode. True for onboarding (no creds)
 // and button-started APs; false for the involuntary fallback AP, where the open
 // AP + stored creds would otherwise let an RF-range attacker relocate the device
@@ -1132,6 +1137,7 @@ void setup() {
         WiFi.softAP(apName.c_str());
         dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
         isApMode = true;
+        apModeIsOnboarding = true;
         apConnectAuthorized = true;   // onboarding: nothing to protect yet
         Serial.print("AP IP Address: ");
         Serial.println(WiFi.softAPIP());
@@ -1959,8 +1965,13 @@ void setup() {
     }
 
     // Wait for connection OR wait for Improv/Button. With the cable up there is
-    // nothing to wait for — Improv keeps being served from loop().
+    // nothing to wait for — Improv keeps being served from loop(). That holds
+    // for a cable that got its address only after the boot window as well;
+    // loop() then takes the radio back.
     while (!wifiOffForEth && WiFi.status() != WL_CONNECTED &&
+#ifdef W5500_ETH
+           !knxUseEthernet() &&
+#endif
            (millis() - bootTime < improvWindowMs)) {
 #ifndef DISABLE_IMPROV
         improvSerial.handleSerial();
@@ -2088,6 +2099,29 @@ static void knxRejoinRouting(const char* why) {
     ipDl->enabled(true);
 }
 
+#ifdef W5500_ETH
+// An AP that only exists for want of a network has nothing left to do once the
+// cable carries the gateway: the fallback AP, and the onboarding AP as long as
+// nobody is connected to it. The button AP was asked for and stays.
+static bool apObsoleteForEthernet() {
+    return isApMode && (apModeIsFallback ||
+                        (apModeIsOnboarding && WiFi.softAPgetStationNum() == 0));
+}
+
+static void leaveApForEthernet() {
+    Serial.printf("%s: ethernet carries the gateway, leaving AP mode\n",
+                  apModeIsFallback ? "Fallback-AP" : "Onboarding-AP");
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+    dnsServer.stop();
+    isApMode = false;
+    apModeIsFallback = false;
+    apModeIsOnboarding = false;
+    apConnectAuthorized = false;
+    digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
+}
+#endif
+
 uint32_t lastWifiCheck = 0;
 bool wasConnected = true;
 bool otaValidationPending = true;
@@ -2182,20 +2216,15 @@ void loop() {
             Serial.printf("Interface: %s -> %s\n", activeIfName(activeIf), activeIfName(now));
             activeIf = now;
             if (now == IF_ETH) {
-                if (isApMode && apModeIsFallback) {
-                    // The fallback AP exists only because no network was
-                    // reachable. One is now — close it, same as the STA
-                    // re-association exit below does.
-                    Serial.println("Fallback-AP: ethernet carries the gateway, leaving AP mode");
-                    WiFi.softAPdisconnect(true);
-                    WiFi.mode(WIFI_STA);
-                    dnsServer.stop();
-                    isApMode = false;
-                    apModeIsFallback = false;
-                    digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
+                if (apObsoleteForEthernet()) {
+                    // The fallback and the onboarding AP exist only because no
+                    // network was reachable. One is now — close it, same as the
+                    // STA re-association exit below does.
+                    leaveApForEthernet();
                 }
-                // A deliberate AP (onboarding, button) is left alone —
-                // somebody may be using it right now.
+                // The button AP is left alone, and so is an onboarding AP with a
+                // client — somebody is using it right now. The branch below
+                // closes the onboarding AP once that client has left.
                 if (!isApMode && WiFi.getMode() != WIFI_OFF) {
                     wifiRadioPark("ethernet took over");
                 }
@@ -2216,6 +2245,21 @@ void loop() {
             // a connect (that path reboots). Back to cable-only, or the two
             // interfaces share the subnet again for the rest of the uptime.
             wifiRadioPark("web UI finished with the radio");
+        } else if (now == IF_ETH && !wifiOffForEth && !wifiResumedAt && !pendingReboot &&
+                   WiFi.getMode() != WIFI_OFF &&
+                   WiFi.scanComplete() != WIFI_SCAN_RUNNING &&
+                   (!isApMode || apObsoleteForEthernet())) {
+            // The radio is still on from boot although the cable carries. The
+            // cable got its address after the boot window had handed the gateway
+            // to the radio, but before setup() ended, so the branch above never
+            // saw a change: a station still trying to connect, or the open
+            // onboarding AP. Also reached once the last client has left an
+            // onboarding AP that was in use when the cable took over.
+            if (isApMode) {
+                leaveApForEthernet();
+            }
+            wifiRadioPark("ethernet took over");
+            knxRejoinRouting("ethernet");
         }
     }
 #endif
@@ -2529,7 +2573,9 @@ void loop() {
         // the open captive-portal AP until a manual power-cycle even though the
         // network is back (the exact silent-until-power-cycle failure the
         // watchdog exists to prevent). Onboarding and button-started APs are
-        // deliberate (apModeIsFallback == false) and are NOT auto-exited.
+        // deliberate (apModeIsFallback == false) and are NOT auto-exited here;
+        // a cable that carries closes an unused onboarding AP (see the
+        // interface check above).
         if (apModeIsFallback &&
             WiFi.status() == WL_CONNECTED && (uint32_t)WiFi.localIP() != 0) {
             Serial.print("Fallback-AP: STA re-associated, leaving AP mode. IP: ");
