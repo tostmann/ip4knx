@@ -65,6 +65,7 @@ class TableObject: public InterfaceObject
     void allocTableStatic();
     bool staticTableFitsNvm();
     void initializeDynTableProperties(size_t propertiesSize, Property** properties);
+    void resetTable();
     void loadEvent(const uint8_t* data);
     void loadEventUnloaded(const uint8_t* data);
     void loadEventLoading(const uint8_t* data);

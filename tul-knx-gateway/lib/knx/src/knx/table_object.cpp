@@ -226,6 +226,21 @@ void TableObject::loadEventUnloaded(const uint8_t* data)
     }
 }
 
+// Unload: mark the table unloaded and free its NVM block. Every state that can hold
+// a block goes through here -- an Unload in Loading or Error used to keep a block
+// allocated during the load, which save() then stored and the next boot reserved
+// again, until the next allocation of that table. A static table keeps its block.
+// (upstream 3d1b2ad)
+void TableObject::resetTable()
+{
+    loadState(LS_UNLOADED);
+    if (_data && !_staticTableAdr)
+    {
+        _memory.freeMemory(_data);
+        _data = 0;
+    }
+}
+
 void TableObject::loadEventLoading(const uint8_t* data)
 {
     uint8_t event = data[0];
@@ -250,7 +265,7 @@ void TableObject::loadEventLoading(const uint8_t* data)
             loadState(LS_LOADED);
             break;
         case LE_UNLOAD:
-            loadState(LS_UNLOADED);
+            resetTable(); // a block allocated during this load is freed, not kept for good
             break;
         case LE_ADDITIONAL_LOAD_CONTROLS:
             additionalLoadControls(data);
@@ -273,16 +288,7 @@ void TableObject::loadEventLoaded(const uint8_t* data)
             loadState(LS_LOADING);
             break;
         case LE_UNLOAD:
-            loadState(LS_UNLOADED);
-            //free nv memory
-            if (_data)
-            {
-                if(!_staticTableAdr)
-                {
-                    _memory.freeMemory(_data);
-                    _data = 0;
-                }
-            }
+            resetTable();
             break;
         case LE_ADDITIONAL_LOAD_CONTROLS:
             loadState(LS_ERROR);
@@ -305,7 +311,7 @@ void TableObject::loadEventError(const uint8_t* data)
         case LE_START_LOADING:
             break;
         case LE_UNLOAD:
-            loadState(LS_UNLOADED);
+            resetTable(); // a block from the failed load is freed as well
             break;
         default:
             loadState(LS_ERROR);
