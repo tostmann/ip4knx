@@ -255,6 +255,29 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password) {
     Serial.printf("Improv Connected! SSID: %s\n", ssid);
     improvConnected = true;
 }
+
+// Improv connects through the library's own logic (strongest BSSID, ...), but a
+// cable-carried gateway has its radio parked. Resume it first, as the web UI
+// does, without auto-connect: begin() with the stored network would race the
+// new credentials. wifiOffForEth and power save are then right while the
+// station comes up, and loop() parks the radio again while the cable carries.
+static improv_wifi_busware::ArduinoWiFiBackend improvConnectBackend;
+
+static bool onImprovConnectWiFi(const char *ssid, const char *password) {
+    wifiRadioResume("Improv is (re)configuring WiFi", false);
+    WiFi.setSleep(WIFI_PS_NONE);   // C6 rule: before every begin()
+    return improvConnectBackend.tryConnect(ssid, password);
+}
+
+#ifdef W5500_ETH
+// Improv 0x02/0x07: a W5500 that carries the gateway counts as connected, so
+// ESP Web Tools offers "Visit device" instead of asking for Wi-Fi settings.
+static bool onImprovWiredInterface(char *ip, size_t len) {
+    if (!ethPresent) return false;
+    snprintf(ip, len, "%s", knxUseEthernet() ? ETH.localIP().toString().c_str() : "");
+    return true;
+}
+#endif
 #endif
 
 uint32_t bootTime = 0;
@@ -972,6 +995,10 @@ void setup() {
     // after opening the serial port (which resets the device via USB-JTAG)
     improvSerial.onImprovConnected(onImprovWiFiConnectedCb);
     improvSerial.onImprovError(onImprovWiFiErrorCb);
+    improvSerial.setCustomConnectWiFi(onImprovConnectWiFi);
+#ifdef W5500_ETH
+    improvSerial.setWiredInterface(onImprovWiredInterface);
+#endif
 #if defined(CONFIG_IDF_TARGET_ESP32C3)
     improvSerial.setDeviceInfo(ImprovTypes::ChipFamily::CF_ESP32_C3, "TUL KNX/IP Gateway", FIRMWARE_VERSION, "TUL Gateway");
 #elif defined(CONFIG_IDF_TARGET_ESP32C6)
@@ -1081,9 +1108,18 @@ void setup() {
     Serial.println("[F] read SSID/PSK");
     Serial.flush();
     delay(50);
-    bool hasCredentials = WiFi.psk().length() > 0 || WiFi.SSID().length() > 0;
+    // WiFi.SSID() names the network the station is associated with, so before
+    // the first connect it is empty even with credentials stored: an open
+    // network (empty PSK) then counted as "no credentials" and the onboarding
+    // AP opened instead. Read the stored station config.
+    wifi_config_t staConf = {};
+    const size_t storedSsidLen =
+        esp_wifi_get_config(WIFI_IF_STA, &staConf) == ESP_OK
+            ? strnlen(reinterpret_cast<const char*>(staConf.sta.ssid), sizeof(staConf.sta.ssid))
+            : 0;
+    bool hasCredentials = storedSsidLen > 0;
     Serial.print("WiFi SSID length: ");
-    Serial.println(WiFi.SSID().length());
+    Serial.println(storedSsidLen);
     Serial.print("WiFi PSK length: ");
     Serial.println(WiFi.psk().length());
     Serial.println("[G] WiFi early-init done");
@@ -1998,6 +2034,7 @@ void setup() {
                 WiFi.softAP(apName.c_str());
                 dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
                 isApMode = true;
+                apModeIsOnboarding = false;   // asked for: stays open at the cable
                 apConnectAuthorized = true;   // button = physical presence
                 Serial.print("AP IP Address: ");
                 Serial.println(WiFi.softAPIP());
@@ -2033,6 +2070,7 @@ void setup() {
             WiFi.softAPdisconnect(true);
             WiFi.mode(WIFI_STA);
             isApMode = false;
+            apModeIsOnboarding = false;
         }
         digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
     } else {
@@ -2546,6 +2584,7 @@ void loop() {
             Serial.print("AP IP Address: ");
             Serial.println(WiFi.softAPIP());
             isApMode = true;
+            apModeIsOnboarding = false;   // asked for: stays open at the cable
             apConnectAuthorized = true;   // button = physical presence
             if (knx.progMode()) {
                 knx.progMode(false);
