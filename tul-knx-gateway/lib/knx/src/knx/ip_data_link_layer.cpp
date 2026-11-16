@@ -38,6 +38,9 @@
 IpDataLinkLayer::IpDataLinkLayer(DeviceObject& devObj, IpParameterObject& ipParam,
     NetworkLayerEntity &netLayerEntity, Platform& platform, BusAccessUnit& busAccessUnit, DataLinkLayerCallbacks* dllcb) : DataLinkLayer(devObj, netLayerEntity, platform, busAccessUnit), _ipParameters(ipParam), _dllcb(dllcb)
 {
+#ifdef KNX_TUNNELING
+    _ipParameters.onTunnelAddressesWritten(&IpDataLinkLayer::tunnelAddressesWritten, this);
+#endif
 }
 
 // KNXnet/IP routing (the multicast ROUTING_INDICATION exchange) starts only once
@@ -1099,6 +1102,62 @@ bool IpDataLinkLayer::tunnelAddressInUse(uint16_t pa)
     return false;
 }
 
+void IpDataLinkLayer::tunnelAddressesWritten(void* self, const uint8_t* before, const uint8_t* after)
+{
+    static_cast<IpDataLinkLayer*>(self)->moveTunnelsToWrittenAddresses(before, after);
+}
+
+// Device management changes the address of an open tunnel by writing the new one
+// into PID_ADDITIONAL_INDIVIDUAL_ADDRESSES where the tunnel's address stands, at
+// the lowest index if it stands there more than once, and the server uses it at
+// once: the M_PropWrite.con is the confirmation that the new address is in use
+// (03_08_04 4.2.3.5.2, 4.2.3.6). A tunnel used to keep its address until it
+// reconnected, so the client's next frames still went out under the old one. ETS
+// 6.4.1 writes such an address when it checks whether the address of the
+// interface is free ("Adresse frei?"): 15.15.255 where its own connection's
+// address stands, then the check under that connection.
+// Each changed entry moves the open tunnel that had its old value, lowest index
+// first, each tunnel once. A new value that is never a tunnel address (x.y.0, the
+// device's own) or that another open tunnel has is not taken; that tunnel keeps
+// its address. The pool the device makes itself on a connect moves nothing
+// (loopHandleConnectRequest writes it past this).
+void IpDataLinkLayer::moveTunnelsToWrittenAddresses(const uint8_t* before, const uint8_t* after)
+{
+    const uint16_t ownAddress = _deviceObject.individualAddress();
+    bool moved[KNX_TUNNELING] = {};
+    for(int i = 0; i < KNX_TUNNELING; i++)
+    {
+        uint16_t was = 0;
+        uint16_t now = 0;
+        popWord(was, before + i*2);
+        popWord(now, after + i*2);
+        if(was == now || was == 0)
+            continue;
+        for(int t = 0; t < KNX_TUNNELING; t++)
+        {
+            KnxIpTunnelConnection& tun = tunnels[t];
+            if(tun.ChannelId == 0 || tun.IsConfig || tun.IndividualAddress != was)
+                continue;
+            if(!moved[t] && IpParameterObject::isUsableTunnelAddress(ownAddress, now) && !tunnelAddressInUse(now))
+            {
+                tun.IndividualAddress = now;
+                moved[t] = true;
+#ifdef KNX_LOG_TUNNELING
+                print("tunnel ");
+                print(t);
+                print(" moved to ");
+                print(now >> 12);
+                print(".");
+                print((now >> 8) & 0x0F);
+                print(".");
+                println(now & 0xFF);
+#endif
+            }
+            break;  // no two open tunnels share an address
+        }
+    }
+}
+
 void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length, uint32_t& src_addr, uint16_t& src_port)
 {
     // Header, control and data HPAI and at least the CRI's length and type octets:
@@ -1211,7 +1270,9 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
         uint8_t addrbuffer[KNX_TUNNELING*2];
         IpParameterObject::defaultTunnelAddresses(ownAddress, addrbuffer);
         uint8_t count = KNX_TUNNELING;
-        _ipParameters.writeProperty(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES, 1, addrbuffer, count);
+        // Past IpParameterObject::writeProperty: this is the device's own pool, not
+        // device management, so it moves no open tunnel.
+        _ipParameters.InterfaceObject::writeProperty(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES, 1, addrbuffer, count);
         // re-point `addresses` at the property's live storage: addrbuffer[] is block-scoped
         // and would dangle when read later (popWord(addresses + tunIdx*2)); propertyData()
         // returns the persisted copy we just wrote (same source the configured branch uses).

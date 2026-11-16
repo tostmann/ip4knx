@@ -29,7 +29,16 @@ class IpParameterObject : public InterfaceObject
     // False for an address that is never handed out for tunnelling, whatever a
     // written pool says: x.y.0, and the device's own address (08_TSSH 5.3.1).
     static bool isUsableTunnelAddress(uint16_t ownAddress, uint16_t address);
+
+    // Told after device management changed PID_ADDITIONAL_INDIVIDUAL_ADDRESSES,
+    // with the list as it was and as it is now (KNX_TUNNELING entries, 2 bytes
+    // each), so that the owner of the tunnels can move an open one to the address
+    // written for it (03_08_04 4.2.3.5.2).
+    typedef void (*TunnelAddressesWritten)(void* context, const uint8_t* before, const uint8_t* after);
+    void onTunnelAddressesWritten(TunnelAddressesWritten callback, void* context);
 #endif
+    // Device management writes through here (bau_systemB, cemi_server).
+    void writeProperty(PropertyID id, uint16_t start, uint8_t* data, uint8_t& count) override;
 
     // PID_KNXNETIP_DEVICE_STATE (03_08_03 2.5.20): bit 0 KNX fault, bit 1 IP fault,
     // each set once its side has been unusable for 5 s and cleared when it is back
@@ -46,5 +55,10 @@ class IpParameterObject : public InterfaceObject
     uint32_t _knxFaultSince = 0;    // millis() the KNX side was first seen unusable, 0 = it is not
     uint32_t _ipFaultSince = 0;
     bool _deviceStateSeeded = false;
+#ifdef KNX_TUNNELING
+    TunnelAddressesWritten _tunnelAddressesWritten = nullptr;
+    void* _tunnelAddressesWrittenContext = nullptr;
+    void copyTunnelAddresses(uint8_t* out);
+#endif
 };
 #endif

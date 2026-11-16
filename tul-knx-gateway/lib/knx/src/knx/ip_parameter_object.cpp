@@ -295,6 +295,43 @@ bool IpParameterObject::isUsableTunnelAddress(uint16_t ownAddress, uint16_t addr
 {
     return (address & 0xFF) != 0 && address != ownAddress;
 }
+
+void IpParameterObject::onTunnelAddressesWritten(TunnelAddressesWritten callback, void* context)
+{
+    _tunnelAddressesWritten = callback;
+    _tunnelAddressesWrittenContext = context;
+}
+
+// The list as a copy, entries not present as 0.0.0: a write can move the storage.
+void IpParameterObject::copyTunnelAddresses(uint8_t* out)
+{
+    memset(out, 0, KNX_TUNNELING * 2);
+    uint16_t count = 0;
+    readPropertyLength(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES, count);
+    const uint8_t* addresses = propertyData(PID_ADDITIONAL_INDIVIDUAL_ADDRESSES);
+    if (addresses != nullptr)
+        memcpy(out, addresses, (count < KNX_TUNNELING ? count : KNX_TUNNELING) * 2);
+}
 #endif
+
+void IpParameterObject::writeProperty(PropertyID id, uint16_t start, uint8_t* data, uint8_t& count)
+{
+#ifdef KNX_TUNNELING
+    if (id == PID_ADDITIONAL_INDIVIDUAL_ADDRESSES && _tunnelAddressesWritten != nullptr)
+    {
+        uint8_t before[KNX_TUNNELING * 2];
+        copyTunnelAddresses(before);
+        InterfaceObject::writeProperty(id, start, data, count);
+        if (count == 0)
+            return;
+        uint8_t after[KNX_TUNNELING * 2];
+        copyTunnelAddresses(after);
+        if (memcmp(before, after, sizeof(before)) != 0)
+            _tunnelAddressesWritten(_tunnelAddressesWrittenContext, before, after);
+        return;
+    }
+#endif
+    InterfaceObject::writeProperty(id, start, data, count);
+}
 
 #endif

@@ -122,6 +122,8 @@ class IpDataLinkLayer : public DataLinkLayer
     void loopHandleConnectRequest(uint8_t* buffer, uint16_t length, uint32_t& src_addr, uint16_t& src_port);
     bool fromTunnelPeer(const KnxIpTunnelConnection* tun, uint32_t src_addr);
     bool tunnelAddressInUse(uint16_t pa);
+    static void tunnelAddressesWritten(void* self, const uint8_t* before, const uint8_t* after);
+    void moveTunnelsToWrittenAddresses(const uint8_t* before, const uint8_t* after);
     void loopHandleConnectionStateRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr, uint16_t src_port);
     void loopHandleDisconnectRequest(uint8_t* buffer, uint16_t length, uint32_t src_addr);
     void loopHandleDescriptionRequest(uint8_t* buffer, uint16_t length);
