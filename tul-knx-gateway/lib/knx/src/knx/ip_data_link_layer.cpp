@@ -1273,8 +1273,8 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
     // the second would replace the temporary address before ETS writes the old one
     // back, that write would change nothing, and its tunnel would stay on the
     // temporary address. A tunnel connect in between still renews it. A missing
-    // pool is made on any connect, because the reserved-tunnel assignment below
-    // reads the pool for both kinds.
+    // pool is made on any connect, as before, so that `addresses` is never null
+    // below.
     const uint16_t ownAddress = _deviceObject.individualAddress();
     if(addresses != nullptr && connRequest.cri().type() == TUNNEL_CONNECTION &&
        !IpParameterObject::isCurrentTunnelPool(ownAddress, addresses))
