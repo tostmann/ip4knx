@@ -53,7 +53,8 @@ the ip4knx firmware the stick *is* the KNXnet/IP interface:
    ```
 
    `15.15.0` is the stick's own individual address — the default until it is
-   assigned one with ETS. Select your stick. No further questions follow; the
+   assigned one with ETS (see [Individual Address](README.md#individual-address)).
+   Select your stick. No further questions follow; the
    entry is created as `Tunneling @ 15.15.0 - busware.de TUL @ <IP-OF-IP4KNX>:3671`.
 3. On the ip4knx dashboard, *Active Clients* goes up by one.
 
@@ -89,7 +90,8 @@ Assistant's routing step reports *"No KNXnet/IP router was discovered on the
 network."*, and a routing connection sees no telegrams. With routing active,
 tunneling is still the more robust choice: it does not depend on multicast,
 which switches and access points with IGMP snooping can stop delivering without
-notice.
+notice. Routing also forwards main groups 14–31 only, because without an ETS
+application the stick has no filter table for main groups 0–13.
 
 ## Step 2 — Create entities
 

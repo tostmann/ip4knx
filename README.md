@@ -19,7 +19,7 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot. First-time provisioning is reliable even while the captive AP is broadcasting — the strongest matching access point is selected without a forced radio channel that would otherwise break the WPA2 handshake in the AP+STA window.
 *   **OTA Firmware Update:** Two paths, both with MD5 verification: (a) **online update** from the manifest at [install.busware.de/ip4knx/](https://install.busware.de/ip4knx/) — one click in the dashboard pulls the latest firmware over HTTPS; (b) **manual upload** of any `firmware_*.bin` through the same dashboard. Both apply to the TUL and TUL32; the TULX32 installs firmware through its recovery system (see Supported Hardware).
 *   **Dual-OTA Anti-Brick:** Two app partitions plus bootloader app-rollback. A freshly OTA'd partition stays `PENDING_VERIFY` for the first 30 s; if the new firmware crashes before then, the bootloader falls back to the previous partition on next boot.
-*   **Programming Mode Toggle:** One-click ETS programming-mode activation from the dashboard / `/api/progmode` (no more reaching for the physical button during commissioning).
+*   **Programming Mode Toggle:** One-click ETS programming-mode activation from the dashboard / `/api/progmode` (no more reaching for the physical button during commissioning); see [Individual Address](#individual-address).
 *   **NCN5130 Boot Self-Test:** Verifies the SPI/UART link to the transceiver, all power rails (V20V/VDD2/VBUS/VFILT), XTAL, and thermal status on every boot. Visible on the dashboard and in `/api/status`.
 *   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, NCN transceiver state, OTA partition + state, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
 *   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`. Both interfaces additionally announce a DHCP hostname of the form `tul-<MAC suffix>` — the same suffix the fallback AP carries — so a stick is recognisable in the router's lease list instead of showing up under a generic platform default.
@@ -113,6 +113,17 @@ During the first 120 seconds after powering on, you can also provision Wi-Fi cre
     pip install pyserial
     python3 scripts/test_improv.py --port /dev/ttyACM0 --ssid 'My_WiFi_Network' --password 'SuperSecret123'
     ```
+
+## Individual Address
+
+ip4knx starts with the individual address `15.15.0`. Tunneling works with it; KNXnet/IP routing starts only once the stick has a different address, and the tunnel addresses follow the stick's line (see [Tunnel addresses](HowToHomeAssistant.md#tunnel-addresses)). Routing forwards main groups 14–31 only: main groups 0–13 would need a filter table, and without an ETS application the stick has none.
+
+There is no ETS application (product database entry) for ip4knx, and the dashboard has no address field. The stick accepts an address in two ways:
+
+*   **ETS, in programming mode:** Start programming the individual address in ETS, then switch programming mode on — *Programming Mode → Toggle* in the dashboard, or a short press (under 2 seconds) of the push button (S1 on the TULX32). Tested with ETS 6.4.1, one product with mask version 091A (KNXnet/IP router) as a placeholder in the project, and the stick's own tunnel as the connection; other placeholder products, other ETS versions and programming through another interface on the line are untested. Besides the address, ETS writes the placeholder's name and IP settings (friendly name, routing multicast address, TTL) into the stick and restarts it, so the stick is listed under that name afterwards.
+*   **KNXnet/IP device management:** Write `PID_KNX_INDIVIDUAL_ADDRESS` (PID 52) of the KNXnet/IP parameter object.
+
+The address is stored and survives a restart. *Stored Configuration → Reset* in the dashboard deletes it together with the tunnel addresses, the routing settings and the name ETS wrote, and restarts the stick with `15.15.0`.
 
 ## 🏠 Connecting Home Assistant
 

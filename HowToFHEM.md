@@ -70,9 +70,13 @@ define KNXGW KNXIO M 224.0.23.12:3671 <FREE-IA>
 `224.0.23.12:3671` is the standard KNX routing multicast group. Caveats:
 
 * ip4knx starts KNXnet/IP routing only once the stick has an individual address
-  other than `15.15.0`, assigned with ETS. Until then the dashboard shows
+  other than `15.15.0`, assigned with ETS (see
+  [Individual Address](README.md#individual-address)). Until then the dashboard shows
   *IP Routing: Off until a physical address is set (tunnelling works)*, and a
   Mode M connection sees no telegrams.
+* Without an ETS application the stick has no filter table, so routing forwards
+  main groups 14–31 only; telegrams to main groups 0–13 are not routed. Mode H
+  carries all group addresses.
 * Routing does **not** rewrite the source address, so `<FREE-IA>` must be a
   genuinely free, unique address in your ETS project — otherwise you create a
   bus address conflict.
