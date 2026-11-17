@@ -1,5 +1,6 @@
 #include "ip_parameter_object.h"
 #ifdef USE_IP
+#include <cstring>
 #include "device_object.h"
 #include "platform.h"
 #include "bits.h"

@@ -1123,6 +1123,15 @@ void IpDataLinkLayer::tunnelAddressesWritten(void* self, const uint8_t* before, 
 // device's own) or that another open tunnel has is not taken; that tunnel keeps
 // its address. The pool the device makes itself on a connect moves nothing
 // (loopHandleConnectRequest writes it past this).
+// Entries are matched by value, one after the other, so a write that shifts or
+// swaps addresses among open tunnels moves only what is free when its entry comes:
+// a tunnel cannot take an address another one leaves later in the same write, and
+// one left behind matches no entry any more and changes only by reconnecting. ETS
+// changes one entry per write.
+// The L_Data.con of a frame the tunnel sent before the move carries the old
+// address and reaches no tunnel (DataLinkLayer::dataConReceived looks the source
+// up); the client waits for it in vain. ETS 6.4.1 sends T_Disconnect and moves its
+// tunnel without waiting for that con, and went on about 1 s later.
 void IpDataLinkLayer::moveTunnelsToWrittenAddresses(const uint8_t* before, const uint8_t* after)
 {
     const uint16_t ownAddress = _deviceObject.individualAddress();
@@ -1258,8 +1267,17 @@ void IpDataLinkLayer::loopHandleConnectRequest(uint8_t* buffer, uint16_t length,
     // as well. The line is read from the first entry that is not empty (0.0.0), so
     // a written pool with a gap at the start is kept; one without any entry is made
     // anew.
+    // Only a tunnel connect renews a pool. A device management connection gets no
+    // address, and ETS opens one for each step when it moves its own tunnel to a
+    // temporary address and back (see moveTunnelsToWrittenAddresses): renewing on
+    // the second would replace the temporary address before ETS writes the old one
+    // back, that write would change nothing, and its tunnel would stay on the
+    // temporary address. A tunnel connect in between still renews it. A missing
+    // pool is made on any connect, because the reserved-tunnel assignment below
+    // reads the pool for both kinds.
     const uint16_t ownAddress = _deviceObject.individualAddress();
-    if(addresses != nullptr && !IpParameterObject::isCurrentTunnelPool(ownAddress, addresses))
+    if(addresses != nullptr && connRequest.cri().type() == TUNNEL_CONNECTION &&
+       !IpParameterObject::isCurrentTunnelPool(ownAddress, addresses))
     {
 #ifdef KNX_LOG_TUNNELING
         println("Tunnel-PAs are outside the device's line or the old default, renewing them");
