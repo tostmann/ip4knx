@@ -1115,7 +1115,9 @@ void IpDataLinkLayer::tunnelAddressesWritten(void* self, const uint8_t* before, 
 // reconnected, so the client's next frames still went out under the old one. ETS
 // 6.4.1 writes such an address when it checks whether the address of the
 // interface is free ("Adresse frei?"): 15.15.255 where its own connection's
-// address stands, then the check under that connection.
+// address stands, then the check under that connection, then the old address
+// back. While the tunnel kept its address, ETS did not write it back, and
+// 15.15.255 stayed in the stored list.
 // Each changed entry moves the open tunnel that had its old value, lowest index
 // first, each tunnel once. A new value that is never a tunnel address (x.y.0, the
 // device's own) or that another open tunnel has is not taken; that tunnel keeps
