@@ -263,10 +263,56 @@ void onImprovWiFiConnectedCb(const char *ssid, const char *password) {
 // station comes up, and loop() parks the radio again while the cable carries.
 static improv_wifi_busware::ArduinoWiFiBackend improvConnectBackend;
 
+// Defined further down with the rest of the AP state.
+extern bool isApMode;
+extern bool apModeIsFallback;
+extern uint32_t lastFallbackRetry;
+
+// Stops the station and keeps it stopped. With a stored network out of reach
+// the core auto-reconnect retries it back to back (NO_AP_FOUND counts as
+// reconnectable), so the station is "connecting" nearly all the time. While it
+// is, scans and esp_wifi_set_config are refused ("sta is connecting, cannot
+// set config"), and a SoftAP on the same radio is off its channel most of the
+// time. WiFi.disconnect() only waits while the station is *connected*, so it
+// returns before the driver has dropped an attempt in flight: wait for that
+// here, probing with the stored config, and look again a moment later in case
+// the core's one-time retry after the first failure started a new attempt.
+// Auto-reconnect is left off; callers switch it back on where that is right.
+// The fallback AP's next try (loop()) is pushed back as well, so it cannot
+// start a new attempt right behind this one, e.g. between here and the
+// caller's WiFi.begin().
+static void quietStation(uint32_t maxMs = 3000) {
+    WiFi.setAutoReconnect(false);
+    lastFallbackRetry = millis();
+    wifi_config_t cfg;
+    if (esp_wifi_get_config(WIFI_IF_STA, &cfg) != ESP_OK) {
+        return;   // station not initialised: nothing in flight
+    }
+    const uint32_t start = millis();
+    do {
+        esp_wifi_disconnect();
+        delay(50);
+        if (esp_wifi_set_config(WIFI_IF_STA, &cfg) != ESP_ERR_WIFI_STATE) {
+            delay(200);   // let the disconnect event run through the core
+            if (esp_wifi_set_config(WIFI_IF_STA, &cfg) != ESP_ERR_WIFI_STATE) {
+                return;
+            }
+        }
+    } while (millis() - start < maxMs);
+    Serial.println("WiFi: station still busy, going on anyway");
+}
+
 static bool onImprovConnectWiFi(const char *ssid, const char *password) {
     wifiRadioResume("Improv is (re)configuring WiFi", false);
-    WiFi.setSleep(WIFI_PS_NONE);   // C6 rule: before every begin()
-    return improvConnectBackend.tryConnect(ssid, password);
+    // A stored network out of reach kept the station "connecting", and Improv
+    // reported "Unable to connect" even for a network in reach: the backend's
+    // scan and esp_wifi_set_config were refused. Stop the station first.
+    quietStation();
+    WiFi.setSleep(WIFI_PS_NONE);     // C6 rule: before every begin()
+    const bool ok = improvConnectBackend.tryConnect(ssid, password);
+    // In the fallback AP it stays off: loop() retries the network itself.
+    WiFi.setAutoReconnect(!(isApMode && apModeIsFallback));
+    return ok;
 }
 
 #ifdef W5500_ETH
@@ -286,6 +332,8 @@ bool isApMode = false;
 // WiFi). Onboarding (no creds) and button-started APs leave this false: they
 // are deliberate and must not be auto-exited when a stale STA re-associates.
 bool apModeIsFallback = false;
+// Last try at the stored network while in the fallback AP (see loop()).
+uint32_t lastFallbackRetry = 0;
 // True only for the onboarding AP setup() opens when it found neither stored
 // credentials nor a cable with an address. A cable that gets its address later
 // makes it pointless, so loop() closes it then (W5500 build) — unless somebody
@@ -1436,6 +1484,11 @@ void setup() {
             
             Serial.printf("Received WiFi config via Web Portal. SSID: %s\n", ssid.c_str());
             
+            // In the fallback AP the station may be in the middle of a try at
+            // the stored network, and esp_wifi_set_config would then refuse
+            // the new credentials. The client is on the AP, so ending that try
+            // costs nothing here; over the station it would cut this request.
+            if (isApMode) quietStation();
             WiFi.persistent(true);
             WiFi.setSleep(WIFI_PS_NONE);   // C6: PS_NONE before every begin() (see setup)
             WiFi.begin(ssid.c_str(), pass.c_str());
@@ -2029,6 +2082,11 @@ void setup() {
         } else if (currentButtonState == LOW && buttonState == LOW) {
             if (!isApMode && (millis() - buttonPressStart > 2000)) {
                 Serial.println("Button held > 2s during boot - Starting Access Point!");
+                // A stored network out of reach is retried back to back by the
+                // core auto-reconnect; stop the station, or the SoftAP is off
+                // its channel most of the time and nobody can join it. Like the
+                // AP itself, this lasts until the next restart.
+                quietStation();   // keeps the stored network
                 WiFi.mode(WIFI_AP_STA);
                 String mac = WiFi.softAPmacAddress();
                 mac.replace(":", "");
@@ -2086,6 +2144,13 @@ void setup() {
 #endif
         if (!isApMode) {
             Serial.println("[Warning] WiFi not connected - Starting Fallback Access Point!");
+            // The stored network is out of reach, and the core auto-reconnect
+            // retries it back to back (NO_AP_FOUND counts as reconnectable),
+            // scanning every channel each time. The SoftAP shares the radio and
+            // is off its channel most of the time: clients time out
+            // authenticating and nobody gets onto the AP. Stop that loop;
+            // loop() tries the network once every FALLBACK_STA_RETRY_MS instead.
+            quietStation();   // keeps the stored network, sets lastFallbackRetry
             WiFi.mode(WIFI_AP_STA);
             String mac = WiFi.softAPmacAddress();
             mac.replace(":", "");
@@ -2178,6 +2243,8 @@ extern "C" bool verifyRollbackLater() { return true; }
 // down-duration so loop() can force a fresh re-association + DHCP itself.
 #define WIFI_WATCHDOG_GRACE_MS  30000UL   // let core auto-reconnect try first
 #define WIFI_WATCHDOG_RETRY_MS  30000UL   // then force begin() at this cadence
+#define FALLBACK_STA_RETRY_MS   60000UL   // fallback AP: one try at the stored network per minute
+#define FALLBACK_STA_RETRY_BUSY_MS 300000UL  // ... every 5 min while a client is on the AP
 uint32_t wifiDownSince     = 0;           // 0 = link considered up
 uint32_t lastReconnectKick = 0;           // last forced WiFi.begin() timestamp
 
@@ -2607,8 +2674,8 @@ void loop() {
 
     if (isApMode) {
         // The fallback AP is a recovery state, not a destination. It is entered
-        // in setup() when the boot window expired with no WiFi, but the STA
-        // stays armed the whole time (core auto-reconnect). If it re-associates
+        // in setup() when the boot window expired with no WiFi; the stored
+        // network is retried once a minute (below). If it re-associates
         // and gets an IP, tear the AP down and resume normal STA operation so
         // the WiFi watchdog is armed again — otherwise the gateway would sit in
         // the open captive-portal AP until a manual power-cycle even though the
@@ -2626,6 +2693,7 @@ void loop() {
             dnsServer.stop();
             isApMode = false;
             apModeIsFallback = false;
+            WiFi.setAutoReconnect(true);   // off while in the fallback AP, see setup()
             digitalWrite(KNX_LED, LOW); // LED ON (Active Low)
             // Prime the watchdog to the "up" state so the next 5 s sample sees
             // steady-connected and does not log a spurious down-transition.
@@ -2634,6 +2702,21 @@ void loop() {
             lastReconnectKick = 0;
             // Fall through to normal WiFi monitoring this iteration.
         } else {
+            // Fallback AP: auto-reconnect is off (see setup()), so try the
+            // stored network once a minute. While a client is on the AP only
+            // every five minutes: the attempt takes the radio off the AP
+            // channel for a moment, but a client must not keep the gateway in
+            // the open AP for good once its network is back.
+            const int apClients = WiFi.softAPgetStationNum();
+            if (apModeIsFallback &&
+                millis() - lastFallbackRetry >=
+                    (apClients == 0 ? FALLBACK_STA_RETRY_MS : FALLBACK_STA_RETRY_BUSY_MS)) {
+                lastFallbackRetry = millis();
+                Serial.printf("Fallback-AP: trying the stored network (%d client(s) on the AP)\n",
+                              apClients);
+                WiFi.setSleep(WIFI_PS_NONE);   // C6 rule: before every (re)connect
+                WiFi.reconnect();
+            }
             dnsServer.processNextRequest();
             // Double flash pattern for AP mode: 100ms ON, 100ms OFF, 100ms ON, 700ms OFF
             uint32_t t = millis() % 1000;
