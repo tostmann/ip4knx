@@ -1,40 +1,30 @@
-"""TULX32: flash the recovery bootloader at 0x0 and the recovery app at 0x2B0000.
+"""TULX32: this env only builds; every cable target is refused.
 
-The recovery system (bootloader with the S1 check + recovery app in the factory
-partition) is built separately; its binaries are expected in tulx32_recovery/.
-pioarduino's own bootloader would boot the recovery only with an empty otadata
-and never on the button, so it is replaced here.
+The shop layout (partitions_tulx32_recovery.csv) keeps a recovery system in
+factory, started by a bootloader with an S1 check; bootloader, factory and
+prov are fixed at delivery. PlatformIO's cable targets would destroy that:
+upload writes the framework bootloader at 0x0 (the builder copies
+FLASH_EXTRA_IMAGES into the esptool arguments before post scripts run, so the
+recovery bootloader cannot be swapped in here), and erase / erase_upload wipe
+the whole flash. The filesystem uploads are refused along with them.
 
-The binaries are not part of the repository. Without them the application
-still builds -- firmware.bin is what the recovery installs under "Install from
-a file" -- and only a cable upload is refused: it would write the framework
-bootloader over the recovery one.
+Install firmware.bin from the recovery ("Install from a file"). A full image
+for a cable flash in the lab comes from scripts/build_factory.sh and goes on
+with esptool.
 """
-import os
 Import("env")  # noqa: F821
 
-proj = env.subst("$PROJECT_DIR")
-rec_dir = os.path.join(proj, "tulx32_recovery")
-bootloader = os.path.join(rec_dir, "bootloader.bin")
-recovery = os.path.join(rec_dir, "tulx32_recovery.bin")
-missing = [p for p in (bootloader, recovery) if not os.path.isfile(p)]
+CABLE_TARGETS = ("upload", "erase_upload", "erase", "uploadfs", "uploadfsota")
 
-if missing:
-    note = "tulx32_recovery_images: missing " + ", ".join(missing)
-    print(note + " -- building firmware.bin only, cable upload disabled")
 
-    def refuse_upload(source, target, env):
-        print(note + " -- cable upload refused: it would replace the recovery "
-              "bootloader. Install firmware.bin from the recovery instead.")
-        return 1
+def refuse_cable_flash(source, target, env):
+    print("tulx32_recovery_images: cable flashing is disabled for this env -- "
+          "upload would replace the recovery bootloader, erase and erase_upload "
+          "would wipe the recovery. Install firmware.bin from the recovery "
+          "(\"Install from a file\"); for a full lab image use "
+          "scripts/build_factory.sh and esptool.")
+    return 1
 
-    env.AddPreAction("upload", refuse_upload)
-else:
-    images = []
-    for offset, path in env.get("FLASH_EXTRA_IMAGES", []):
-        if int(str(offset), 16) == 0x0:
-            path = bootloader
-        images.append((offset, path))
-    images.append(("0x2B0000", recovery))
-    env.Replace(FLASH_EXTRA_IMAGES=images)
-    print("tulx32_recovery_images: " + ", ".join("%s %s" % (o, os.path.basename(p)) for o, p in images))
+
+for name in CABLE_TARGETS:
+    env.AddPreAction(name, refuse_cable_flash)
