@@ -45,6 +45,12 @@ public:
     uint32_t udpRxDropped() const override { return _udpRxDropped; }
     // Most datagrams waiting in the receive buffer at once since boot.
     uint32_t udpRxBacklogPeak() const { return _udpRxBacklogPeak; }
+    // KNXnet/IP datagrams dropped since boot because they came in over the
+    // SoftAP, the open setup network (see udpReceive()).
+    uint32_t udpRxFromSoftAp() const { return _udpRxFromSoftAp; }
+    // Datagrams held back since boot because their route led out over the
+    // SoftAP (see udpSendInCore()).
+    uint32_t udpTxToSoftAp() const { return _udpTxToSoftAp; }
     // Datagrams the IP stack refused to send since boot.
     uint32_t udpTxFailed() const { return _udpTxFailed; }
     void multicastTtl(uint8_t ttl) override { _multicastTtl = ttl; }
@@ -73,6 +79,8 @@ private:
     volatile uint32_t _udpRxQueued = 0;    // udpReceive()
     volatile uint32_t _udpRxTaken = 0;     // readBytesMultiCast(), closeMultiCast()
     volatile uint32_t _udpRxBacklogPeak = 0;
+    volatile uint32_t _udpRxFromSoftAp = 0;   // udpReceive()
+    uint32_t _udpTxToSoftAp = 0;              // udpSend()
     uint32_t _udpTxFailed = 0;
     uint8_t _multicastTtl = 16;
     uint32_t _udpRxDroppedReported = 0;

@@ -6,6 +6,7 @@
 
 #include "knx/bits.h"
 #include "lwip/igmp.h"
+#include "lwip/ip.h"
 #include "lwip/pbuf.h"
 #include "lwip/udp.h"
 #include "esp_netif.h"
@@ -36,6 +37,7 @@ struct UdpSend
     ip_addr_t dst;
     uint16_t port;
     err_t err;
+    bool toSoftAp;   // not sent: the route led out over the SoftAP
 };
 
 // #ifndef KNX_SERIAL
@@ -208,10 +210,35 @@ esp_err_t Esp32Platform::udpClose(void* ctx)
     return ESP_OK;
 }
 
+// True for the SoftAP's lwIP interface. Both look-ups just read fields and
+// take no lock, so this is fine in the tcpip thread.
+static bool isSoftAp(struct netif* n)
+{
+    if (n == nullptr)
+        return false;
+    esp_netif_t* nif = esp_netif_get_handle_from_netif_impl(n);
+    if (nif == nullptr)
+        return false;
+    const char* key = esp_netif_get_ifkey(nif);
+    return key != nullptr && strcmp(key, "WIFI_AP_DEF") == 0;
+}
+
 void Esp32Platform::udpReceive(void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_addr_t* addr, uint16_t port)
 {
     (void)pcb;
     Esp32Platform* self = (Esp32Platform*)arg;
+    // The SoftAP is the open setup network ("TUL AP ..."): anyone in radio
+    // range can join it, and a client there got a KNXnet/IP tunnel -- and with
+    // it the bus. KNXnet/IP belongs to the station and the cable only: whatever
+    // comes in over the SoftAP is dropped unanswered (ip_current_input_netif()
+    // is valid here, inside the receive callback), and nothing goes out there
+    // either (udpSendInCore()).
+    if (isSoftAp(ip_current_input_netif()))
+    {
+        self->_udpRxFromSoftAp = self->_udpRxFromSoftAp + 1;
+        pbuf_free(p);
+        return;
+    }
     // An empty datagram has nothing to read; the socket returned nothing for
     // those either, so it is neither queued nor counted.
     if (p->tot_len > 0)
@@ -240,6 +267,15 @@ void Esp32Platform::udpReceive(void* arg, struct udp_pcb* pcb, struct pbuf* p, c
 static esp_err_t udpSendInCore(void* ctx)
 {
     UdpSend* s = (UdpSend*)ctx;
+    // With neither station nor cable up, the SoftAP is the default interface,
+    // and a routing indication to the multicast group would leave through it:
+    // bus traffic on the open setup network. This is the route udp_sendto()
+    // takes itself, as no multicast interface is set on this PCB.
+    if (isSoftAp(ip_route(&s->pcb->local_ip, &s->dst)))
+    {
+        s->toSoftAp = true;
+        return ESP_OK;
+    }
     s->err = udp_sendto(s->pcb, s->p, &s->dst, s->port);
     return ESP_OK;
 }
@@ -262,6 +298,11 @@ bool Esp32Platform::udpSend(const IPAddress& ip, uint16_t port, const uint8_t* b
     s.err = ERR_OK;
     esp_netif_tcpip_exec(udpSendInCore, &s);
     pbuf_free(p);
+    if (s.toSoftAp)
+    {
+        _udpTxToSoftAp++;
+        return true;   // held back on purpose, not a failure
+    }
     return s.err == ERR_OK;
 }
 
