@@ -178,6 +178,9 @@ back-ends.
   its own, the fault is on the gateway/Wi-Fi side (check Wi-Fi signal and your
   router's DHCP lease time); if only a FHEM restart helps, the fault is on the
   host side.
+* **No answer while connected to `TUL AP …`:** the stick's own access point is
+  for setup only and carries no KNXnet/IP. Use the stick's address in your
+  Wi-Fi network or on the cable.
 
 ## Reference
 

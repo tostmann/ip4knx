@@ -13,14 +13,16 @@ Built upon the excellent [OpenKNX](https://github.com/OpenKNX/knx) stack, highly
 *   **High Performance Concurrency:** Supports up to **10 concurrent KNXnet/IP Tunneling connections** (e.g., simultaneous use of ETS, Home Assistant, Node-RED, etc.).
 *   **Tunnel Source-Address Validation:** Each tunnel gets an assigned individual address, and telegrams a client sends through its tunnel carry it. Source `0.0.0` is filled in as the KNXnet/IP Tunnelling specification requires; any other source is rewritten as well. That second part is a deliberate deviation — the specification would pass such a frame unchanged — so that a client cannot send under another client's or a bus device's address.
 *   **Optional Wired Ethernet (TUL32):** A W5500 module on the TUL32's FPC header is detected at boot, so one build serves a populated and an unpopulated board. The interface takes the busware MAC programmed into eFuse during production (a board without one keeps the address derived from the chip MAC), and once the cable has a link and a DHCP lease the Wi-Fi radio is parked — the gateway then holds exactly one address on the network. The address comes from DHCP (IPv4); there is no static-address setting. Stored Wi-Fi credentials survive, and the radio returns when the cable is pulled. Because the wired interface has its own MAC, it gets its own DHCP lease: the gateway is reachable under a different IP on cable than on Wi-Fi, so clients that store the address (ETS, Home Assistant) have to be pointed at the one in use. KNXnet/IP routing follows the active interface and re-joins its multicast group on a cable change; discovery answers with the address of the active interface. Dashboard, mDNS and the online update check work over the cable, and the dashboard shows ethernet link, IP and MAC. The TUL (ESP32-C3) has no such header and is built without the ethernet code.
-*   **Hardened Web Surface:** All state-changing HTTP endpoints are cross-origin (CSRF) gated — a request whose `Origin` does not match the `Host` is rejected — and the captive AP is restricted to onboarding only (scan/connect/status). Same-origin browser UI and non-browser clients (curl/scripts) are unaffected.
-*   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP <MAC>`). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard. A gateway that is already carried by an ethernet cable stays off the air and does not open this AP.
+*   **Hardened Web Surface:** All state-changing HTTP endpoints are cross-origin (CSRF) gated — a request whose `Origin` does not match the `Host` is rejected — and the captive AP is restricted to onboarding only (scan/connect/status; in the fallback access point, connect additionally needs the push button held for more than 2 seconds). Same-origin browser UI and non-browser clients (curl/scripts) are unaffected.
+*   **Installer Mode (Captive Portal):** If no Wi-Fi credentials exist, the device immediately broadcasts an open Access Point (`TUL AP xxxx`, with the last four hex digits of its MAC). Connecting to this network triggers a Captive Portal, instantly redirecting your smartphone or laptop to the built-in configuration dashboard. A gateway that is already carried by an ethernet cable stays off the air and does not open this AP.
+*   **Fallback Access Point:** If Wi-Fi credentials are stored but the network is out of reach when the 120-second boot window ends, the gateway opens the same `TUL AP xxxx`. Storing a different network through it needs the push button (S1 on the TULX32) held for more than 2 seconds first — until then *Connect & Restart* is refused there, so that nobody in radio range can move the gateway to another network. The gateway tries the stored network once a minute — every five minutes while a client is connected to the access point — and closes the access point once a try succeeds. A gateway carried by an ethernet cable opens no fallback access point, and plugging the cable in closes one that is open.
+*   **No KNX on the Access Point:** The stick's own access point is for setup only. KNXnet/IP tunnelling and routing run over the Wi-Fi station or the cable: KNXnet/IP traffic that reaches the access point is dropped unanswered, and nothing KNXnet/IP is sent out over it. `/api/status` counts both as `knxip.rx_softap_dropped` and `knxip.tx_softap_dropped`.
 *   **Web-Based Wi-Fi Setup:** Click the status badge in the web dashboard to open the Wi-Fi configuration modal. Perform a live scan of nearby networks, select your SSID, and enter the password. The gateway will save the credentials and seamlessly reboot into client mode.
-*   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot. First-time provisioning is reliable even while the captive AP is broadcasting — the strongest matching access point is selected without a forced radio channel that would otherwise break the WPA2 handshake in the AP+STA window.
+*   **Improv-WiFi Provisioning:** Alternatively, connect via Serial (USB) and provision Wi-Fi credentials straight from your browser. ImprovSerial runs concurrently during the first 120 seconds after boot. First-time provisioning is reliable even while the captive AP is broadcasting — the strongest matching access point is selected without a forced radio channel that would otherwise break the WPA2 handshake in the AP+STA window. Provisioning also works while a stored network is out of reach — within the same 120 seconds, before the fallback access point opens.
 *   **OTA Firmware Update:** Two paths, both with MD5 verification: (a) **online update** from the manifest at [install.busware.de/ip4knx/](https://install.busware.de/ip4knx/) — one click in the dashboard pulls the latest firmware over HTTPS; (b) **manual upload** of any `firmware_*.bin` through the same dashboard. Both apply to the TUL and TUL32; the TULX32 installs firmware through its recovery system (see Supported Hardware).
 *   **Dual-OTA Anti-Brick:** Two app partitions plus bootloader app-rollback. A freshly OTA'd partition stays `PENDING_VERIFY` for the first 30 s; if the new firmware crashes before then, the bootloader falls back to the previous partition on next boot.
 *   **Programming Mode Toggle:** One-click ETS programming-mode activation from the dashboard / `/api/progmode` (no more reaching for the physical button during commissioning); see [Individual Address](#individual-address).
-*   **NCN5130 Boot Self-Test:** Verifies the SPI/UART link to the transceiver, all power rails (V20V/VDD2/VBUS/VFILT), XTAL, and thermal status on every boot. Visible on the dashboard and in `/api/status`.
+*   **NCN5130 Boot Self-Test:** Checks the UART link to the transceiver and the bus voltage (VBUS) on every boot and keeps checking while running; the power rails (V20V/VDD2/VBUS/VFILT), XTAL and the thermal warning are reported alongside. Visible on the dashboard and in `/api/status`.
 *   **Web-based Status Dashboard:** Built-in web server displaying system uptime, network details, active tunneling slots, NCN transceiver state, OTA partition + state, and real-time KNX Bus Statistics (Bus Load, RX/TX Counters).
 *   **Zero-Conf / mDNS:** Reach the gateway interface locally via `http://tul.local`. Both interfaces additionally announce a DHCP hostname of the form `tul-<MAC suffix>` — the same suffix the fallback AP carries — so a stick is recognisable in the router's lease list instead of showing up under a generic platform default.
 *   **Hardware Watchdog:** Active Task Watchdog Timer (TWDT) and Wi-Fi connection monitoring.
@@ -87,15 +89,16 @@ This project uses PlatformIO. The required `knx` and `tpuart` libraries are vend
    # OR
    pio run -e tul32_esp32c6 -t upload
    ```
+4. **TULX32:** `pio run -e tulx32_esp32c6` only builds; the image to install is `firmware.bin`. Every cable target (`upload`, `erase`, `erase_upload`, `uploadfs`, `uploadfsota`) is refused in this environment, so that the recovery bootloader and the recovery system stay intact. Install `.pio/build/tulx32_esp32c6/firmware.bin` through the recovery system (*Install from a file*). A full image with `scripts/build_factory.sh tulx32_esp32c6` needs the recovery binaries, which are not part of this repository.
 
 ## ⚙️ Initial Setup
 For the first setup over Wi-Fi, the firmware offers an "Installer Mode":
 
 1. **Plug the TUL stick into a USB port or power bank.**
-2. **Connect to the Gateway:** If no Wi-Fi credentials are saved (factory state), the gateway will immediately broadcast an open Wi-Fi network named `TUL AP <MAC>`. Connect to this network with your smartphone or laptop.
+2. **Connect to the Gateway:** If no Wi-Fi credentials are saved (factory state), the gateway will immediately broadcast an open Wi-Fi network named `TUL AP xxxx` (the last four hex digits of its MAC). Connect to this network with your smartphone or laptop.
 3. **Captive Portal:** A sign-in prompt should automatically appear (Captive Portal), redirecting you to the gateway's web dashboard. If it doesn't, manually open `http://192.168.4.1` in your browser.
 4. **Configure Wi-Fi:** Click on the "AP Mode Active" badge in the top right corner. A modal will open. Click "Scan Wi-Fi Networks", select the target Wi-Fi, enter the password, and hit "Connect & Restart". The device will save the credentials, disable the AP, and reboot into your local network.
-5. **Manual AP Override:** You can force the gateway into AP Mode at any time by pressing and holding the push button on the stick for >2 seconds.
+5. **Manual AP Override:** Press and hold the push button for more than 2 seconds to open the access point at any time. The gateway then leaves your Wi-Fi network and stays in AP mode until you store a network (*Connect & Restart*) or restart it; KNXnet/IP is not available meanwhile unless an ethernet cable carries the gateway.
 
 ### Alternative: Wired Ethernet (TUL32 with W5500 module)
 With the W5500 module fitted, no Wi-Fi setup is needed:
@@ -103,7 +106,7 @@ With the W5500 module fitted, no Wi-Fi setup is needed:
 2. **Find the address** in your router's DHCP lease list (the stick registers as `tul-<4 hex digits>`) or open `http://tul.local`.
 3. **Optional Wi-Fi fallback:** store Wi-Fi credentials through the dashboard — the scan wakes the radio, "Connect & Restart" restarts the gateway, and the cable takes over again. If the cable is pulled later, the gateway continues on Wi-Fi under its Wi-Fi address.
 
-A stick without Wi-Fi credentials that boots without a cable opens its setup access point. Plugging the cable in afterwards brings the wired interface up, but the setup access point stays open until the next restart (or until Wi-Fi is set up through it, which restarts the stick).
+A stick without Wi-Fi credentials that boots without a cable opens its setup access point. Once the cable is plugged in and has its address, the gateway closes the setup access point — at once if no client is connected to it, otherwise as soon as the last client leaves. An access point opened with the button stays open until the next restart.
 
 ### Alternative: Improv-WiFi Provisioning via USB
 During the first 120 seconds after powering on, you can also provision Wi-Fi credentials via USB:
@@ -140,6 +143,7 @@ Create combined factory images for ESP WebFlashTools:
 ```bash
 ./scripts/build_factory.sh tul_esp32c3   # For TUL (ESP32-C3)
 ./scripts/build_factory.sh tul32_esp32c6 # For TUL32 (ESP32-C6)
+./scripts/build_factory.sh tulx32_esp32c6 # For TULX32 (needs the recovery binaries, not part of this repository)
 ```
 Output: `binaries/factory_*.bin` (ready for flashing at 0x0000)
 
@@ -157,7 +161,7 @@ The script performs:
 1. **Flashing** - Writes factory binary to device
 2. **WiFi Provisioning** - Sends credentials via ImprovSerial
 3. **Web Dashboard Check** - Verifies HTTP/API endpoints
-4. **KNX Test** - Sends test telegram (requires ETS-programmed device)
+4. **KNX Test** - Sends a test telegram with `knxtool`; skipped when `knxtool` is missing or `/api/status` reports `knx_configured: false`
 
 ### Python Test Scripts
 ```bash

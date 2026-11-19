@@ -197,6 +197,9 @@ address, and Home Assistant's tunnel does not follow it there.
   recovers on its own, the fault is on the gateway/Wi-Fi side (check Wi-Fi
   signal and your router's DHCP lease time); if only a Home Assistant restart
   helps, the fault is on the host side.
+* **No answer while connected to `TUL AP …`:** the stick's own access point is
+  for setup only and carries no KNXnet/IP. Use the stick's address in your
+  Wi-Fi network or on the cable.
 * **KNX IP Secure** (secure tunneling or routing) is not supported by ip4knx.
   KNX Data Secure has not been tested with ip4knx.
 

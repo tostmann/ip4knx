@@ -1,18 +1,18 @@
 # TUL KNX/IP Gateway (ESP32-C3 / ESP32-C6)
 
-This project provides a highly stable KNX/IP gateway firmware for the TUL and TUL32 busware USB sticks.
+This project provides a highly stable KNX/IP gateway firmware for the busware TUL and TUL32 USB sticks and the bus-powered TULX32.
 
 ## Architecture & Improvements
-* **Core Stack**: Vendored from `OpenKNX/knx` (V2.3.1 base, 2026-04) with local patches for stability and stronger tunnel source-address validation. We track upstream selectively rather than as a downstream fork — see the project memory for the current cherry-pick state.
+* **Core Stack**: Vendored from `OpenKNX/knx` (V2.3.1 base, 2026-04) with local patches for stability and stronger tunnel source-address validation. We track upstream selectively rather than as a downstream fork.
 * **Hardware Support**: Uses a patched, local version of `OpenKNX/tpuart` (`lib/TPUart`) to correctly initialize the NCN5130 chip. The original bitmasks for the ACR0 register (DC2EN, V20VEN, etc.) were corrected according to the ON Semiconductor datasheet. Also includes our own `_baudrate` getter, 30 s disconnect-watchdog (raised from 5 s), active-recovery state-request poke, and `setBCUState()` reset path.
-* **OTA & Anti-Brick**: Dual-app partition layout (`partitions_4mb_ota.csv`); the bootloader's app-rollback feature marks a freshly-installed partition as `PENDING_VERIFY` for the first 30 s of uptime, falling back to the previous partition on next boot if the new firmware crashes. Online OTA fetches from a signed manifest at `install.busware.de/ip4knx/` with browser-side MD5 verification.
+* **OTA & Anti-Brick**: Dual-app partition layout (`partitions_4mb_ota.csv`) on the TUL and TUL32; the bootloader's app-rollback feature marks a freshly-installed partition as `PENDING_VERIFY` for the first 30 s of uptime, falling back to the previous partition on next boot if the new firmware crashes. Online OTA fetches the manifest from `install.busware.de/ip4knx/` over HTTPS and checks the image against the MD5 given there; for a manual upload the browser computes the MD5 and the device checks it. The TULX32 (`partitions_tulx32_recovery.csv`) has one application slot and installs firmware through its recovery system.
 * **Wired Ethernet (optional)**: The TUL32 can carry a W5500 module on its FPC header. `tul32_esp32c6` builds probe for it at boot (`ETH.begin()` reads the chip version; an unpopulated board logs "no W5500" and continues on WiFi), give the interface the busware MAC burnt into eFuse `CUSTOM_MAC`, and — when the cable has a link and a DHCP lease — switch the WiFi radio off so the gateway has exactly one address on the network. WiFi credentials stay stored; the radio comes back when the cable is pulled or when the web UI needs it for a scan or re-provisioning. The KNXnet/IP routing group follows the active interface, and the web UI shows ethernet link, IP and MAC. TUL (C3) and TULX32 have no FPC header and are built without the ethernet code.
 * **UX & Commissioning**: Implements `Improv-WiFi-Library` over the Serial/JTAG port. This allows users to easily provision WiFi credentials via a browser using WebSerial (https://www.improv-wifi.com) while flashing the factory image.
 
 ## Building & Flashing
 The project is structured for PlatformIO. 
-1. Build the image: `pio run -e tul_esp32c3` (for TUL) or `pio run -e tul32_esp32c6` (for TUL32).
-2. The resulting `firmware.bin` (or factory image starting at `0x0`) can be flashed using any ESP-Webserial flasher. Ensure you explicitly use the module's USB JTAG port (e.g., `/dev/serial/by-id/usb-Espressif_USB_JTAG...`).
+1. Build the image: `pio run -e tul_esp32c3` (for TUL) or `pio run -e tul32_esp32c6` (for TUL32). For the TULX32, `pio run -e tulx32_esp32c6` builds `firmware.bin`, which is installed through the recovery system; the cable upload targets are refused in that environment.
+2. For the TUL and TUL32, the resulting `firmware.bin` (or factory image starting at `0x0`) can be flashed using any ESP-Webserial flasher. Ensure you explicitly use the module's USB JTAG port (e.g., `/dev/serial/by-id/usb-Espressif_USB_JTAG...`).
 
 ## Usage
 1. Flash the firmware.

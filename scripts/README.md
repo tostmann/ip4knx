@@ -85,7 +85,7 @@ python3 test_knx_ip_bidirectional.py --busmonitor /tmp/eib
 - Tests both directions: HASS → KNX Bus (Tunnel) and KNX Bus → HASS (Routing)
 - Supports Home Assistant, knxd (UNIX socket or IP), and multicast monitoring
 - Requires ip4knx with WiFi configured
-- For full routing support: ip4knx needs ETS programming (`knx_configured: true`)
+- For routing: the stick needs an individual address other than `15.15.0` (`knx_routing: true` in `/api/status`); routing forwards main groups 14–31 only
 
 ---
 
@@ -110,7 +110,7 @@ Pass criterion: B receives the echoed L_Data.ind with `src == IA_A` (not the spo
 
 ## test_hass_knx.py
 
-Test script for Home Assistant KNX integration. Sends KNX telegrams via Home Assistant's KNX service.
+Test script for Home Assistant KNX integration. Sends KNX telegrams via Home Assistant's KNX service. It reads the stick's serial log while sending, so the stick has to be on a serial port (`--port`, auto-detected otherwise).
 
 ```bash
 # Send KNX telegram via HASS
@@ -125,7 +125,7 @@ python3 test_hass_knx.py --address 1/2/3
 
 ## test_hass_to_knx.py
 
-Tests bidirectional KNX communication: Home Assistant → Gateway → KNX Bus.
+Tests bidirectional KNX communication: Home Assistant → Gateway → KNX Bus. Like `test_hass_knx.py`, it needs the stick on a serial port (`--port`, auto-detected otherwise).
 
 ```bash
 # Test Home Assistant to KNX Bus path
@@ -142,14 +142,14 @@ python3 test_hass_to_knx.py --token 'YOUR_TOKEN' --address 1/2/3 --payload '[1]'
 Serial port monitor for viewing IP traffic and debug output from the gateway.
 
 ```bash
-# Monitor default serial port (30s timeout)
+# Monitor the default serial port for 30 seconds
 python3 monitor_ip.py
 
 # Monitor specific port
 python3 monitor_ip.py --port /dev/ttyUSB0
 
-# Monitor with custom timeout
-python3 monitor_ip.py --timeout 60
+# Monitor for 60 seconds (0 = no limit)
+python3 monitor_ip.py --duration 60
 ```
 
 ---
@@ -164,6 +164,9 @@ Builds the factory binary for ESP WebFlashTools deployment.
 
 # Build for TUL32 (ESP32-C6)
 ./build_factory.sh tul32_esp32c6
+
+# Build for TULX32 (ESP32-C6; needs the recovery binaries, not part of this repository)
+./build_factory.sh tulx32_esp32c6
 ```
 
 Output: `binaries/` directory with factory binary.
@@ -174,7 +177,7 @@ Output: `binaries/` directory with factory binary.
 
 | Variable | Used By | Description |
 |----------|---------|-------------|
-| `HASS_URL` | test_hass_knx.py, test_knx_ip_bidirectional.py | Home Assistant URL (default: http://localhost:8123) |
+| `HASS_URL` | test_hass_knx.py, test_hass_to_knx.py | Full URL of Home Assistant's `knx.send` service (default: `http://localhost:8123/api/services/knx/send`) |
 | `HASS_TOKEN` | test_hass_knx.py, test_hass_to_knx.py | Home Assistant access token |
 
 ---
